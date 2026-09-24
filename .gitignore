@@ -1,0 +1,53 @@
+# === Never commit these. The repo becomes public at the end of the build and history is
+# === exposed in full. See PRD R-26 and docs/RUNBOOK.md §6.
+
+# Personal Live Photo fixtures. Real photos of real people.
+# Ignore the CONTENTS, not the directory itself — git cannot re-include a file inside an
+# ignored directory, so `tests/fixtures/personal/` would make the .gitkeep negation useless
+# and the directory would not exist on clone.
+tests/fixtures/personal/*
+!tests/fixtures/personal/.gitkeep
+
+# Signing material.
+*.p12
+*.cer
+*.certSigningRequest
+*.mobileprovision
+*.provisionprofile
+
+# === Build artifacts
+
+# Generated Xcode project (0006). project.yml is the source of truth.
+*.xcodeproj
+*.xcworkspace
+!**/project.yml
+
+# gifski xcframework, built by scripts/build-gifski.sh (0004).
+Vendor/
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Rust
+target/
+
+# Harness output. Only harness/baseline.json is committed.
+harness/out/
+harness/*.json
+!harness/baseline.json
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xcscmblueprint
+build/
+
+# Self-hosted runner, if ever placed inside the repo (it should not be).
+actions-runner/
+_work/
+
+# macOS
+.DS_Store

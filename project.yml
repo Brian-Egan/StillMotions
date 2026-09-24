@@ -1,0 +1,97 @@
+# XcodeGen manifest. See docs/decisions/0006-project-generator.md.
+#
+# StillMotions.xcodeproj is a build artifact and is gitignored. Run `xcodegen generate`
+# before any xcodebuild invocation. Never hand-edit the generated project.
+
+name: StillMotions
+
+options:
+  bundleIdPrefix: com.began
+  deploymentTarget:
+    iOS: "27.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  # Fail loudly rather than silently generating a project that references missing files.
+  disabledValidations: []
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    DEVELOPMENT_TEAM: "" # set by the signing human issue; see docs/ROADMAP.md
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    TARGETED_DEVICE_FAMILY: "1" # iPhone only. iPad layouts are a non-goal (PRD §0).
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  StillMotionsPipeline:
+    path: .
+
+targets:
+  # The app. Links the pipeline and gifski. Owns all PhotoKit access, all UI, and the
+  # editor. See docs/ARCHITECTURE.md §1.
+  StillMotions:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/StillMotions
+    dependencies:
+      - package: StillMotionsPipeline
+        product: StillMotionsPipeline
+      - target: StillMotionsShare
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.began.StillMotions
+        INFOPLIST_KEY_CFBundleDisplayName: StillMotions
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: >-
+          StillMotions reads Live Photos from your library so it can stabilize them.
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: >-
+          StillMotions saves exported GIFs and videos to your library.
+    entitlements:
+      path: App/StillMotions/StillMotions.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.began.StillMotions
+
+  # Share extension. A drop box only: copies the asset into the App Group container and
+  # exits. It deliberately does NOT depend on StillMotionsPipeline — if it ever does, the
+  # drop-box decision has been violated. See docs/decisions/0003-extension-strategy.md.
+  StillMotionsShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: App/StillMotionsShare
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.began.StillMotions.Share
+        INFOPLIST_KEY_CFBundleDisplayName: StillMotions
+    info:
+      path: App/StillMotionsShare/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsImageWithMaxCount: 1
+              NSExtensionActivationSupportsMovieWithMaxCount: 1
+    entitlements:
+      path: App/StillMotionsShare/StillMotionsShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.began.StillMotions
+
+schemes:
+  StillMotions:
+    build:
+      targets:
+        StillMotions: all
+    run:
+      config: Debug
+    archive:
+      config: Release

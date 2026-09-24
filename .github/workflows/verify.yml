@@ -1,0 +1,80 @@
+# Pipeline verification. Runs on the self-hosted macOS runner so it costs no GitHub
+# minutes and has Xcode, Rust, and the toolchain already present.
+# See docs/RUNBOOK.md §2 for runner setup and docs/ARCHITECTURE.md §9 for the topology.
+#
+# The check name `verify` is what branch protection requires. Renaming the job breaks the
+# required check silently — update the branch protection rule if you ever do.
+#
+# This deliberately does NOT run xcodebuild. Signing an iOS build unattended needs keychain
+# unlock and fails in exactly the overnight conditions this is meant to support. App builds
+# are covered by the `human` on-device verification issues.
+
+name: verify
+
+on:
+  pull_request:
+    paths:
+      - "Package.swift"
+      - "Sources/**"
+      - "tests/**"
+      - "harness/**"
+      - "scripts/**"
+      - ".github/workflows/verify.yml"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # One run per branch; cancel superseded runs so an overnight agent pushing repeatedly
+  # does not queue a backlog on a single-runner setup.
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: [self-hosted, macOS, arm64]
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          swift --version
+          xcodebuild -version || true
+          cargo --version || echo "cargo missing — gifski build will fail if CGifski is active"
+
+      # gifski takes minutes to build from Rust source and changes only when the pinned
+      # version or the build script changes. Cache on both.
+      - name: Cache gifski xcframework
+        id: gifski-cache
+        uses: actions/cache@v4
+        with:
+          path: Vendor/Gifski.xcframework
+          key: gifski-${{ runner.os }}-${{ hashFiles('scripts/build-gifski.sh') }}
+
+      - name: Build gifski
+        if: steps.gifski-cache.outputs.cache-hit != 'true'
+        run: |
+          # Only needed once CGifski is an active dependency. Until then the commented-out
+          # binaryTarget in Package.swift means the package builds without it.
+          if grep -qE '^\s*\.binaryTarget\(name: "CGifski"' Package.swift; then
+            ./scripts/build-gifski.sh
+          else
+            echo "CGifski not yet active in Package.swift — skipping"
+          fi
+
+      - name: Verify
+        run: ./scripts/verify.sh
+
+      # Contact sheets and metrics are the evidence for a quality regression. Keep them
+      # even on failure — especially on failure.
+      - name: Upload harness output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-output
+          path: harness/out/
+          if-no-files-found: ignore
+          retention-days: 14
