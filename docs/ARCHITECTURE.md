@@ -329,14 +329,25 @@ flowchart LR
   VERIFY --> REG[harness regression<br/>synthetic fixtures]
   VERIFY --> PRIV[check-no-private-assets.sh]
   RUNNER -->|status check| GH
-  GH -->|auto-merge when green| MAIN[main]
+  GH -->|agent waits, reads result| AGENT
+  AGENT -->|merges only if green| MAIN[main]
 ```
 
 `scripts/verify.sh` is the **single entry point**, called by both the agent and the runner,
-so local and CI verification cannot drift apart. The agent merges with
-`gh pr merge --auto --squash`, which queues rather than merges; GitHub lands it only when
-the required check passes. That is what makes unattended overnight work safe — a
-misread terminal cannot merge a red branch.
+so local and CI verification cannot drift apart.
+
+**The gate is not enforced by GitHub.** Branch protection on a private repository requires
+GitHub Pro, and rulesets require an organization on GitHub Team; this repo is private under a
+Free personal account. So the agent runs `gh pr checks --watch --fail-fast` and merges only on
+exit 0, and `gh pr merge --auto` is forbidden — with no required checks it merges immediately,
+before the runner has started, which would make the check decorative.
+
+What the runner still provides without enforcement is the part that mattered: the tests run on
+a clean checkout, on hardware the agent does not control, and the verdict is recorded on the
+pull request permanently. What is lost is the mechanical inability to merge red, which is now a
+rule in CLAUDE.md rather than a server-side constraint. A missing check is the dangerous case,
+since it resembles success, so CLAUDE.md requires the agent to stop and report rather than treat
+it as a pass.
 
 CI deliberately does **not** run `xcodebuild`. Signing an iOS build unattended needs
 keychain unlock and is exactly the kind of thing that fails at 3am. App builds belong to

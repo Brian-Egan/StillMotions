@@ -3,8 +3,15 @@
 # Runner setup is in docs/RUNBOOK.md ("Set up the runner"); the topology is in
 # docs/ARCHITECTURE.md §9.
 #
-# The check name `verify` is what branch protection requires. Renaming the job breaks the
-# required check silently — update the branch protection rule if you ever do.
+# The job is named `verify`. The build agent waits for it with
+# `gh pr checks --watch --fail-fast` and merges only if it passes.
+#
+# It runs on EVERY pull request, with no path filter. Branch protection is unavailable on a
+# private repo under a GitHub Free personal account, so the agent enforces the gate itself by
+# refusing to merge a red or missing check. A path filter would mean some pull requests have no
+# check at all, and "no check" is indistinguishable from "check has not started yet" — so the
+# agent would have to guess. Running on everything costs a couple of minutes of your own
+# hardware and removes the ambiguity.
 #
 # This deliberately does NOT run xcodebuild. Signing an iOS build unattended needs keychain
 # unlock and fails in exactly the overnight conditions this is meant to support. App builds
@@ -14,13 +21,6 @@ name: verify
 
 on:
   pull_request:
-    paths:
-      - "Package.swift"
-      - "Sources/**"
-      - "tests/**"
-      - "harness/**"
-      - "scripts/**"
-      - ".github/workflows/verify.yml"
   push:
     branches: [main]
   workflow_dispatch:

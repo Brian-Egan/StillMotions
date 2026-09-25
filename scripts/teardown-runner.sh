@@ -9,8 +9,8 @@
 # Run this when the build is finished, or any time you want your Mac to behave normally
 # again. It is safe to run twice; anything already gone is skipped.
 #
-# It does NOT change the repo's visibility or touch branch protection. Those are deliberate
-# decisions, not cleanup. See "Making the repo public at the end" in docs/RUNBOOK.md.
+# It does NOT change the repo's visibility. That is a deliberate decision, not cleanup. See
+# "Making the repo public at the end" in docs/RUNBOOK.md.
 
 set -uo pipefail
 
@@ -238,7 +238,7 @@ fi
 
 cat <<'EOF'
 
-The runner is gone and your Mac will sleep normally again. Pull requests will now sit with a
-pending `verify` check, so until you remove the required check in Settings > Branches, nothing
-can merge.
+The runner is gone and your Mac will sleep normally again. Pull requests will now get no
+`verify` check at all. If a build agent is still working, expect it to stop and report that,
+rather than merge unverified.
 EOF

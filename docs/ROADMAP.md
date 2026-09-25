@@ -74,7 +74,7 @@ flowchart LR
 | # | Issue | Blocked by |
 | --- | --- | --- |
 | 1 | `H` Build machine setup: Xcode 27, XcodeGen, Rust, make repo private | — |
-| 2 | `H` Register self-hosted runner, disable sleep, enable branch protection | 1 |
+| 2 | `H` Register self-hosted runner, disable sleep, confirm it picks up a job | 1 |
 | 3 | `H` Export 30-50 personal Live Photo fixtures | — |
 | 4 | `H` Configure signing, bundle identifiers, and the App Group | 1 |
 | 5 | Confirm package skeleton builds and tests; verify.sh green in CI | 2 |
@@ -148,7 +148,7 @@ gets built at all.
 | 36 | Share extension drop box and manifest | 35 |
 | 37 | App-side pending item drain, idempotent with expiry | 36 |
 | 38 | `H` On-device verification: share from Photos | 37 |
-| 39 | `H` Go public: deregister runner, drop required check, flip visibility | 38 |
+| 39 | `H` Go public: run teardown, verify history is clean, flip visibility | 38 |
 
 ---
 
@@ -157,7 +157,7 @@ gets built at all.
 | # | What it needs from you | When |
 | --- | --- | --- |
 | 1 | Install Xcode 27, XcodeGen, Rust; make the repo private | Now |
-| 2 | Register the runner as a service, disable sleep, enable branch protection | Now |
+| 2 | Register the runner as a service, disable sleep, confirm it runs a job | Now |
 | 3 | Export 30-50 Live Photos from Photos on the Mac | Now |
 | 4 | Signing, bundle IDs, App Group in the developer portal and Xcode | Now |
 | 26 | Phone in hand: gallery and editor | After phase 3 |

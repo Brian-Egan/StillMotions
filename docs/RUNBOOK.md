@@ -106,39 +106,46 @@ pmset -g | grep -E ' sleep|disksleep'      # both should read 0
 One thing that catches people out: the runner is a launchd *user* agent, so it only runs while
 you are logged in. Locking the screen is fine. Logging out is not.
 
-### 4. Turn on branch protection
+### 4. Check that the runner actually runs a job
 
-The agent merges with `gh pr merge --auto --squash`, which queues a merge that GitHub only
-completes once the `verify` check passes. Branch protection is what makes that a real gate
-instead of a formality.
+GitHub cannot enforce the test result for you on this setup. Branch protection on a private
+repository needs GitHub Pro, and the newer rulesets need an organization on GitHub Team. This
+repo is private under a Free personal account, so GitHub will happily let a red branch merge.
 
-The check has to run once before GitHub will let you require it, so push a throwaway branch:
+That is less of a loss than it sounds, and the reason is worth understanding, because it changes
+what the runner is for. The runner's value was never the blocking. It is that the tests run on a
+clean checkout of the branch, on hardware the agent does not control, and the result is recorded
+on the pull request where you can read it later. That all still works. What you lose is the
+mechanical inability to merge red, and the substitute is that the agent waits for the check and
+merges only when it is green, which is written into CLAUDE.md as a hard rule.
+
+So instead of configuring protection, confirm the runner picks up work:
 
 ```bash
 git checkout -b runner-smoke-test
-git commit --allow-empty -m "Trigger verify once so the check is registerable"
+git commit --allow-empty -m "Check that the runner picks up a job"
 git push -u origin runner-smoke-test
 gh pr create --fill
 gh pr checks --watch
 ```
 
-Once that goes green, go to Settings, Branches, and add a rule for `main`. Tick "Require
-status checks to pass before merging" and select `verify` from the list. Leave "Require a pull
-request before merging" off, since the agent reviews nothing and has nobody to review it.
+You want that to end with `verify` passing, having run on your Mac. Watch it appear in the
+Actions tab while it runs if you want to see the runner doing its thing.
 
-Then clean up:
+Clean up:
 
 ```bash
 gh pr close --delete-branch
 git checkout main
 ```
 
-Confirm it took:
-
-```bash
-gh api repos/Brian-Egan/StillMotions/branches/main/protection \
-  --jq '.required_status_checks.contexts'
-```
+If you would rather have real enforcement, two ways to get it. GitHub Pro is about $4 a month
+for a personal account and includes branch protection on private repositories; once you have it,
+add a rule on `main` requiring the `verify` check and switch the agent back to
+`gh pr merge --auto --squash`. Or make the repo public, where protection is free on any plan,
+though that means a self-hosted runner on a public repo, which is the configuration GitHub warns
+against because a pull request from a stranger's fork can propose workflow changes that run on
+your machine. Neither is necessary.
 
 ### 5. Export your Live Photos
 
@@ -224,18 +231,28 @@ docs/ARCHITECTURE.md, and follow the task loop in CLAUDE.md exactly.
 
 Setup issues #1 through #4 are done. Start with the lowest-numbered open issue in the
 earliest open milestone whose blockers are all closed and which is not labeled `human`,
-and keep going: one issue per branch, one pull request each, merged with
-`gh pr merge --auto --squash --delete-branch` once `verify` passes.
+and keep going: one issue per branch, one pull request each.
+
+There is no branch protection on this repo, so GitHub will not stop you merging a failed
+build. You are the gate. For every pull request, wait for the check and merge only if it
+passed:
+
+    gh pr checks --watch --fail-fast
+    gh pr merge --squash --delete-branch
+
+Do not use `gh pr merge --auto`; with no required checks it merges immediately, before the
+runner has even started. If `gh pr checks` reports no checks at all, stop and tell me, because
+that means the runner is down and nothing is actually being verified.
 
 Work through as many issues as you can without me. Stop and tell me only if:
 - the next issue is blocked by an open issue labeled `human`
-- the `verify` check will not run, or the runner looks offline
+- the `verify` check will not run, reports nothing, or the runner looks offline
 - an issue's scope turns out to be wrong, in which case comment on the issue proposing a
   split rather than expanding it yourself
 
-Do not relax a test or a threshold to make a build pass. Do not merge on a failing check.
-For anything touching the pipeline, run the harness against tests/fixtures/personal and
-look at the contact sheets before you open the pull request.
+Do not relax a test or a threshold to make a build pass. Do not merge on a failing or
+pending check. For anything touching the pipeline, run the harness against
+tests/fixtures/personal and look at the contact sheets before you open the pull request.
 
 Start now and give me a one-line note each time you merge something.
 ```
@@ -302,11 +319,14 @@ the agent never fight over the same files.
 
 ## When something goes wrong
 
-**A pull request sits with a queued check and the agent has gone quiet.** The runner is
+**A pull request sits with a pending check and the agent has gone quiet.** The runner is
 stopped, or the Mac slept, or you logged out. Start the service, set sleep back to 0, log in.
+The agent is doing the right thing by waiting.
 
-**`verify` is not in the branch-protection list.** GitHub only offers checks it has seen
-before. Push a branch, let the workflow run once, then add the rule.
+**A pull request has no check on it at all.** The runner never picked the job up. Check
+`./svc.sh status` and the Actions tab. This is the case to care about, because a missing check
+looks like nothing is wrong: CLAUDE.md tells the agent to stop and report rather than treat it
+as a pass, but if it merged anyway you would only notice later.
 
 **The runner shows Offline on GitHub but `svc.sh status` says it is running.** The
 registration has lapsed. Get a fresh token and re-register:
@@ -337,10 +357,10 @@ the same place. Only lowercase `tests/` is used here.
 **The GIF build step is slow on every pull request.** It caches on the pinned gifski version
 and the build script, so a change to either costs one slow run and then goes back to cached.
 
-If the runner is broken and you want the agent to keep working, you can temporarily untick
-`verify` in the branch protection rule. It will then merge on its own verification output. Put
-the requirement back once the runner is healthy, because without it nothing independent is
-checking the agent's work.
+If the runner is broken and you want the agent to keep working anyway, tell it to run
+`./scripts/verify.sh` locally and paste the output into each pull request instead of waiting
+for the check. That loses the independent clean-checkout run, so it is a stopgap rather than a
+mode to leave it in. Fix the runner.
 
 ## Why CI does not build the app
 
@@ -374,10 +394,13 @@ you can decline any of them.
 
 Safe to run twice. Anything already gone is skipped.
 
-Two things it deliberately leaves alone. It does not remove the required `verify` check, so
-until you untick it in Settings, Branches, pull requests will sit unmergeable with a pending
-check. And it does not delete `~/actions-runner` itself, in case you want to register it again
-without downloading it; it tells you the command if you do want it gone.
+One thing it deliberately leaves alone: it does not delete `~/actions-runner` itself, in case
+you want to register it again without downloading it. It tells you the command if you do want it
+gone.
+
+After teardown, pull requests get no `verify` check at all. That is the state CLAUDE.md tells
+the agent to stop and report on, so if you tear the runner down mid-build, expect the agent to
+halt rather than merge unverified.
 
 If you never took the power snapshot it falls back to `sudo pmset restoredefaults`, which
 restores Apple's defaults rather than whatever you personally had.
@@ -391,21 +414,18 @@ window where a fork's pull request could run code on your Mac.
 # 1. runner off, power settings back
 ./scripts/teardown-runner.sh
 
-# 2. drop the required check
-#    Settings, Branches, edit the main rule, untick verify
-
-# 3. check the history, not just the working tree
+# 2. check the history, not just the working tree
 git log --all --name-only --pretty=format: \
   | sort -u \
   | grep -Ei 'fixtures/personal|\.p12$|\.mobileprovision$|\.cer$|\.heic$|\.mov$' \
   | grep -v 'fixtures/synthetic' \
   || echo "clean"
 
-# 4. only if step 3 printed clean
+# 3. only if step 2 printed clean
 gh repo edit Brian-Egan/StillMotions --visibility public --accept-visibility-change-consequences
 ```
 
-Step 3 is the one to take seriously. Going public exposes every commit ever made, so one
+Step 2 is the one to take seriously. Going public exposes every commit ever made, so one
 personal photo or one certificate from months ago becomes public too, and getting it out means
 rewriting history. If that grep finds anything, deal with it before you flip the switch.
 

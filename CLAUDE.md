@@ -99,16 +99,39 @@ verification from running. It is the developer's cleanup tool for after the buil
    fixtures if they exist, and **look at the contact sheets**.
 6. **Open a PR** with `Closes #N`, the verification output pasted in, and for pipeline work
    the harness metrics diff against `main`.
-7. **Merge:** `gh pr merge --auto --squash --delete-branch`.
+7. **Wait for the `verify` check, then merge only if it passed:**
+
+```bash
+gh pr create --fill --body "Closes #N
+
+<verification output>"
+
+gh pr checks --watch --fail-fast     # blocks until checks finish; non-zero if any fail
+gh pr merge --squash --delete-branch # only run this if the line above succeeded
+```
 
 ### Merge policy
 
-- `--auto` is required, not optional. It queues the merge so GitHub lands it only when the
-  required `verify` check passes. **Never** merge with failing verification.
-- **Never close an issue directly.** The merge closes it via `Closes #N`.
-- If the required check is queued and the runner is offline, **stop and report**. Do not
-  bypass the check.
+**Do not use `gh pr merge --auto`.** Auto-merge waits only when something is pending, and this
+repo has no required status checks, so `--auto` merges immediately — before the runner has even
+picked up the job. The check would run after the merge and be pointless. Wait explicitly with
+`gh pr checks --watch --fail-fast` instead.
+
+There is no branch protection enforcing this. Branch protection on a private repository needs
+GitHub Pro, and rulesets need an organization on GitHub Team; this repo is private under a Free
+personal account, so GitHub will let you merge a red branch. **You are the enforcement.** That
+makes the rule below absolute rather than advisory:
+
+- `gh pr checks --watch --fail-fast` must exit 0 before you merge. If it exits non-zero, the
+  check failed: fix the branch and push again.
+- If it exits **8**, checks are still pending. Run it again. Never merge on pending.
+- If it reports **no checks at all**, something is wrong: either the runner is offline or the
+  workflow did not trigger. **Stop and report it.** Do not treat a missing check as a pass.
+- **Never** close an issue directly. The merge closes it via `Closes #N`.
 - One issue per PR. Do not bundle.
+
+The check result is recorded permanently on every PR, so a merge made without a green check is
+visible afterwards. Do not create one.
 
 ### When an issue is wrong
 
