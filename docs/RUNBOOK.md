@@ -148,18 +148,21 @@ open StillMotions.xcodeproj
 
 In Xcode, select each of the two targets in turn and open Signing & Capabilities. Automatically
 manage signing should be on, your personal team selected, and App Groups should list
-`group.com.began.Still-Motions` with no warnings. If App Groups shows an error mentioning
-personal teams, tell me — that would contradict what Apple support currently says and would
-change the share extension design.
+`group.com.began.Still-Motions`. If App Groups shows an error mentioning personal teams, tell me —
+that would contradict what Apple support currently says and would change the share extension design.
 
-Plug in the iPhone, trust the Mac, and check it shows up as a run destination. Build, then trust
-the developer certificate on the phone the first time you run: Settings, General, VPN & Device
-Management.
+Xcode will probably warn that you have no registered devices. **Ignore it for now.** A development
+profile embeds a device list, so that warning is expected until you plug the phone in, and none of
+the agent's work needs it cleared.
 
 ```bash
-xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
+xcodebuild -scheme StillMotions -destination 'generic/platform=iOS Simulator' build
 git add project.yml && git commit -m "Set development team for signing (#4)" && git push
 ```
+
+That is the whole of step 4. **No phone required.** Registering the device, installing, trusting
+the certificate, and confirming App Groups against a real profile are issue #44, which you can do
+whenever the phone is to hand — nothing the agent does is waiting on it.
 
 ### Free account limits
 
@@ -208,6 +211,32 @@ identifiers to the unhyphenated ones being held in reserve:
 
 If that passes, the agent has a working baseline to build on.
 
+**Keep the Mac awake.** Nothing else does this any more — the self-hosted runner used to change the
+sleep settings, and it has been removed. If the Mac sleeps, Claude Code stops mid-session.
+
+```bash
+caffeinate -dimsu
+```
+
+Leave that running in its own terminal tab. Unlike `pmset` it changes no saved settings, so it
+reverts the moment you press Ctrl-C or reboot and there is nothing to undo afterwards.
+
+**You do not need the phone connected.** Every issue the agent can work is completable without it:
+app builds target the simulator, which needs no provisioning profile and no codesign pass, so an
+overnight run cannot stall waiting for hardware or block on a keychain prompt. The device checks
+(#44, #26, #30, #35, #38) are yours to do afterwards.
+
+How far it gets unattended depends only on which setup issues are done:
+
+| Done | Agent can reach | Why |
+| --- | --- | --- |
+| #1, #5 | phase 1 (#7–#17) | Pure package work on synthetic fixtures it generates itself |
+| plus #3 | phase 2 (#18–#21) | Quality baseline needs your real Live Photos |
+| plus #4, #6 | phase 3 onward | App code needs a project that builds |
+
+Phase 1 alone is twelve substantial issues, so it is a reasonable night's work on its own. If you
+only have a few minutes, do #4 — it takes five and unblocks everything downstream.
+
 ## Starting a build session
 
 Open a terminal in the repo and start Claude Code. Give it permission to run `bash` and `gh`
@@ -222,6 +251,10 @@ docs/ARCHITECTURE.md, and follow the task loop in CLAUDE.md exactly.
 Setup issues #1, #3 and #4 are done. Start with the lowest-numbered open issue in the
 earliest open milestone whose blockers are all closed and which is not labeled `human`,
 and keep going: one issue per branch, one pull request each.
+
+I am away and the iPhone is not connected. Build the app for the simulator only, never for a
+device. If an issue seems to need hardware, it is mis-scoped: the device checks live in #44,
+#26, #30, #35 and #38, so skip to the next available issue and say so rather than stalling.
 
 CI runs `scripts/verify.sh` on a GitHub-hosted macOS runner for every pull request, and a
 ruleset requires the `verify` check before anything merges. Merge with

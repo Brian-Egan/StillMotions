@@ -16,8 +16,9 @@ flowchart LR
   subgraph p0 [phase-0 Setup]
     I1[1 H toolchain] --> I4[4 H signing]
     I1 --> I5[5 package skeleton]
-    I4 --> I6[6 project generates]
+    I4 --> I6[6 project builds for sim]
     I5 --> I6
+    I6 --> I44[44 H device smoke test]
     I3[3 H fixtures]
   end
   subgraph p1 [phase-1 Pipeline]
@@ -68,19 +69,29 @@ flowchart LR
 
 ## Milestones
 
-### phase-0 Setup — 5 issues, 3 human
+### phase-0 Setup — 6 issues, 4 human
 
 | # | Issue | Blocked by |
 | --- | --- | --- |
 | 1 | `H` Build machine setup: Xcode 27, XcodeGen, Rust | — |
 | 3 | `H` Export 30-50 personal Live Photo fixtures | — |
-| 4 | `H` Configure signing, bundle identifiers, and the App Group | 1 |
+| 4 | `H` Configure signing and the App Group (no device needed) | 1 |
 | 5 | Confirm package skeleton builds and tests from a clean worktree | — |
-| 6 | Generate Xcode project; app and extension build and launch on device | 4, 5 |
+| 6 | Generate Xcode project; app and extension build for the simulator | 4, 5 |
+| 44 | `H` On-device smoke test: install, launch, trust, App Groups | 4, 6 |
 
-**Do all three human issues in one sitting.** #3 and #4 have no dependency on the build and
-are front-loaded deliberately: with them done, the agent runs from #5 to #25 — 21 issues —
-without stopping.
+**None of #1, #3 or #4 needs the iPhone.** They are front-loaded deliberately, and with them done
+the agent runs from #5 to #25 — 21 issues — without stopping.
+
+**#44 is the only phase-0 issue that needs the phone**, and nothing the agent does is blocked by
+it, so it can wait until the phone is to hand. It is the first proof the app installs and launches
+at all, which is why it sits in phase 0 rather than being folded into #26: if the generated project
+cannot launch, that is worth knowing before three more milestones are built on top of it.
+
+More generally, **no agent issue requires hardware.** App builds target the simulator, which needs
+no provisioning profile and no codesign pass, so an unattended run cannot stall on a keychain
+prompt or a 7-day profile expiry. Every device-dependent check lives in #44, #26, #30, #35 or #38.
+See "The agent never needs a physical device" in CLAUDE.md.
 
 Issue #2 (self-hosted runner) was **closed as not planned**. CI runs on GitHub-hosted macOS
 runners instead, which are free and unmetered because the repo is public, and a ruleset requires
@@ -155,18 +166,19 @@ gets built at all.
 
 ---
 
-## Human issues, all eight
+## Human issues, all nine
 
-| # | What it needs from you | When |
-| --- | --- | --- |
-| 1 | Install Xcode 27, XcodeGen, Rust | Now |
-| 3 | Export 30-50 Live Photos from Photos on the Mac | Now |
-| 4 | Signing: set the team in project.yml, tick App Groups in Xcode | Now |
-| 26 | Phone in hand: gallery and editor | After phase 3 |
-| 30 | Phone in hand: trim and crop feel | After phase 4 |
-| 35 | Phone in hand: exports, and does the GIF loop in Messages | After phase 5 |
-| 38 | Phone in hand: share from Photos | After phase 6 |
-| 39 | Wrap-up checks | Last |
+| # | What it needs from you | Phone? | When |
+| --- | --- | --- | --- |
+| 1 | Install Xcode 27, XcodeGen, Rust | no | Now |
+| 3 | Export 30-50 Live Photos from Photos on the Mac | no | Now |
+| 4 | Signing: set the team in project.yml, tick App Groups in Xcode | no | Now |
+| 44 | Install, launch, trust the certificate, confirm App Groups | **yes** | After #6 |
+| 26 | Phone in hand: gallery and editor | **yes** | After phase 3 |
+| 30 | Phone in hand: trim and crop feel | **yes** | After phase 4 |
+| 35 | Phone in hand: exports, and does the GIF loop in Messages | **yes** | After phase 5 |
+| 38 | Phone in hand: share from Photos | **yes** | After phase 6 |
+| 39 | Wrap-up checks | no | Last |
 
 ---
 
