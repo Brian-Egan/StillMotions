@@ -15,7 +15,8 @@ instructed to run it against a clean checkout of each pushed branch before mergi
 - A Mac on Apple silicon, with admin rights
 - Xcode 27 from the App Store
 - An iPhone 14 Pro or newer, and a cable
-- A paid Apple developer account
+- An Apple ID. **A free one is enough** — no $99 Apple Developer Program membership needed. See
+  "Free account limits" below for what that costs you.
 - 30 to 50 of your own Live Photos
 - Claude Code, and `gh` already authenticated
 
@@ -94,19 +95,21 @@ first in every verification pass to stop that happening.
 
 ### 4. Set up signing
 
-Two identifiers and an App Group. The App Group is how the share extension passes a photo to
-the app, so the share feature does not work without it.
+On a free personal team there is **no developer-portal step**. Xcode registers the App IDs and
+the App Group for you when it signs. You only need to tell it which team to use.
 
-On developer.apple.com, under Certificates, Identifiers & Profiles, register two App IDs:
+The identifiers, already in `project.yml`:
 
-- `com.began.StillMotions`
-- `com.began.StillMotions.Share`
+- App: `com.began.Still-Motions`
+- Extension: `com.began.Still-Motions.Share`
+- App Group: `group.com.began.Still-Motions`
 
-Enable the App Groups capability on both. Then register the group itself,
-`group.com.began.StillMotions`, and go back to each App ID to tick it.
+The hyphen is deliberate and load-bearing. An explicit App ID claimed by a personal team cannot
+be released without an Apple Developer Support ticket, so `com.began.StillMotions` is being kept
+free for a future paid team. Do not "tidy" these.
 
-Now put your Team ID into the project definition. You will find it in the top right of the
-developer portal, or under Xcode, Settings, Accounts.
+Find your Team ID under Xcode, Settings, Accounts: select your Apple ID, then your personal team.
+It is the ten-character string, or click Manage Certificates if it is not shown.
 
 ```bash
 # edit project.yml, set DEVELOPMENT_TEAM under settings.base
@@ -115,16 +118,58 @@ open StillMotions.xcodeproj
 ```
 
 In Xcode, select each of the two targets in turn and open Signing & Capabilities. Automatically
-manage signing should be on, your team selected, and App Groups should list
-`group.com.began.StillMotions` with no warnings.
+manage signing should be on, your personal team selected, and App Groups should list
+`group.com.began.Still-Motions` with no warnings. If App Groups shows an error mentioning
+personal teams, tell me — that would contradict what Apple support currently says and would
+change the share extension design.
 
-Plug in the iPhone, trust the Mac, and check it shows up as a run destination. Then confirm the
-whole thing builds and commit the change:
+Plug in the iPhone, trust the Mac, and check it shows up as a run destination. Build, then trust
+the developer certificate on the phone the first time you run: Settings, General, VPN & Device
+Management.
 
 ```bash
 xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 git add project.yml && git commit -m "Set development team for signing (#4)" && git push
 ```
+
+### Free account limits
+
+What the free tier costs you, from Apple's membership comparison:
+
+| | Free personal team | Paid, $99/year |
+| --- | --- | --- |
+| Provisioning profile validity | **7 days** | 1 year |
+| App IDs | 10, each expiring after 7 days | unlimited |
+| Devices | 3, expiring after 7 days | 100 per type |
+| Apps per device | 3 | unlimited |
+| TestFlight | no | yes |
+
+Two of these will actually affect you.
+
+**The app stops launching every 7 days.** It stays on the home screen, then simply refuses to
+open. There is no warning and nothing on the phone can extend it. Rebuild from Xcode and you get
+a fresh 7 days. This is the main reason to eventually pay.
+
+**Do not churn the bundle identifiers.** The app and the extension consume one App ID each, and
+adding App Groups forces explicit rather than wildcard IDs. That gives you roughly five clean
+identifier changes per week before `'10' App ID limit in '7' days`. Free accounts cannot see the
+portal's Identifiers list to delete them, so the only remedy is waiting out the week.
+
+### Upgrading to a paid account later
+
+When the weekly rebuild gets old, enrol in the Apple Developer Program and switch the
+identifiers to the unhyphenated ones being held in reserve:
+
+1. In `project.yml`, change `DEVELOPMENT_TEAM` to the new team ID and replace all three
+   identifiers: `com.began.StillMotions`, `com.began.StillMotions.Share`,
+   `group.com.began.StillMotions`.
+2. `xcodegen generate`, then in Xcode confirm both targets sign against the new team.
+3. Register the two App IDs and the App Group in the developer portal, since a paid team manages
+   identifiers there rather than implicitly.
+4. Rebuild to the device. iOS treats this as a **different app**, so the old one stays installed
+   until you delete it and its settings do not carry over. Nothing else is lost; there is no
+   persistent data beyond preferences.
+5. TestFlight becomes available at this point if you want it.
 
 ### Before you walk away
 

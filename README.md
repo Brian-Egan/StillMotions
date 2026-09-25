@@ -4,7 +4,7 @@ A personal iOS app that turns Live Photos into stabilized, cleanly looping GIFs 
 It's a successor to Google's MotionStills, which did this better than anything currently on
 the App Store and has since been deprecated.
 
-This app is for one user and is distributed through TestFlight only.
+This app is for one user and is installed directly to his own iPhone from Xcode.
 
 ## What it does
 

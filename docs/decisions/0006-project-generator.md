@@ -55,11 +55,14 @@ Generated structure:
 
 | Target | Type | Bundle ID |
 | --- | --- | --- |
-| `StillMotions` | iOS app | `com.began.StillMotions` |
-| `StillMotionsShare` | Share extension | `com.began.StillMotions.Share` |
+| `StillMotions` | iOS app | `com.began.Still-Motions` |
+| `StillMotionsShare` | Share extension | `com.began.Still-Motions.Share` |
 
 Both embed the local `StillMotionsPipeline` SwiftPM package. Both carry App Group
-`group.com.began.StillMotions`. Deployment target iOS 27.0.
+`group.com.began.Still-Motions`. Deployment target iOS 27.0. The hyphenated identifiers are
+deliberate: development runs on a free Apple personal team, which claims explicit App IDs
+permanently, so the unhyphenated names are held in reserve for a future paid team. See
+"Upgrading to a paid account later" in docs/RUNBOOK.md.
 
 ## Consequences
 

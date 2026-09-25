@@ -12,7 +12,8 @@ Read this file, then [docs/PRD.md](docs/PRD.md) and
 ## What this is
 
 A personal iOS app that turns Live Photos into stabilized, cleanly looping GIFs and videos.
-One user, TestFlight only, no App Store. A successor to Google's deprecated MotionStills.
+One user, installed directly to his own iPhone from Xcode, no App Store. A successor to Google's
+deprecated MotionStills.
 
 The processing pipeline is a Swift package with no UI dependency, so it builds and tests on
 macOS — which is what lets you measure stabilization quality without a phone. The app and

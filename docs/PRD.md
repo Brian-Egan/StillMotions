@@ -17,7 +17,8 @@ command or a named on-device action. GitHub issues reference these IDs.
 | Property | Value |
 | --- | --- |
 | Users | One — the developer. No accounts, servers, analytics, or telemetry. |
-| Distribution | Direct device install during the build; TestFlight later. No App Store. |
+| Distribution | Direct device install from Xcode. No App Store. TestFlight needs a paid membership and is out of scope while development runs on a free Apple personal team. |
+| Apple account | Free personal team. Profiles expire every 7 days, so the app must be rebuilt weekly to keep launching. |
 | Minimum iOS | **27.0** |
 | **Reference device** | **iPhone 14 Pro (A16, 6 GB RAM)** |
 | Processing | Entirely on-device |

@@ -161,7 +161,7 @@ gets built at all.
 | --- | --- | --- |
 | 1 | Install Xcode 27, XcodeGen, Rust | Now |
 | 3 | Export 30-50 Live Photos from Photos on the Mac | Now |
-| 4 | Signing, bundle IDs, App Group in the developer portal and Xcode | Now |
+| 4 | Signing: set the team in project.yml, tick App Groups in Xcode | Now |
 | 26 | Phone in hand: gallery and editor | After phase 3 |
 | 30 | Phone in hand: trim and crop feel | After phase 4 |
 | 35 | Phone in hand: exports, and does the GIF loop in Messages | After phase 5 |

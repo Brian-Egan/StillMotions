@@ -11,8 +11,8 @@ Three build products and one package:
 
 | Product | Kind | Bundle ID | Links gifski |
 | --- | --- | --- | --- |
-| `StillMotions` | iOS app, iOS 27.0+ | `com.began.StillMotions` | yes |
-| `StillMotionsShare` | Share extension | `com.began.StillMotions.Share` | **no** |
+| `StillMotions` | iOS app, iOS 27.0+ | `com.began.Still-Motions` | yes |
+| `StillMotionsShare` | Share extension | `com.began.Still-Motions.Share` | **no** |
 | `StillMotionsPipeline` | Local SwiftPM package | — | yes (macOS + iOS) |
 | `stillmotions-harness` | macOS CLI, in the package | — | yes (macOS) |
 
