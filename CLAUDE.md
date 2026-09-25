@@ -177,12 +177,14 @@ App Group container, write a manifest, exit. It does not process, encode, or lau
 property of the content, and Loop mode is GIF-only. See
 [0005](docs/decisions/0005-looping-export.md).
 
-**Never commit personal fixtures or signing material.** The repo becomes public at the end of
-the build, and making a repo public exposes the entire history.
+**Never commit personal fixtures or signing material.** The repo is **public**, so every commit
+and the whole history are visible, and deleting a file later does not remove it from history.
 `scripts/check-no-private-assets.sh` enforces this and runs first in `verify.sh`.
 
-**`swift test` was never validated on the planning machine** (Command Line Tools only, where
-XCTest does not resolve). `swift build` was. Confirm `swift test` runs early.
+**CI runs Xcode 26.x, not 27.** `macos-latest` selected Xcode 26.6 / Swift 6.3.3 on the first
+verified run. That is fine because CI only builds the package for macOS, but it means **CI cannot
+build anything that needs the iOS 27 SDK**. Keep iOS-27-only API behind the app targets, which CI
+does not build, or behind availability checks.
 
 ---
 

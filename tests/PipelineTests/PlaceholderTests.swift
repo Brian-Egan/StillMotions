@@ -8,10 +8,10 @@ import XCTest
 // developer who reads Swift without specialising in it. Switching to `import Testing` later
 // is a mechanical change if preferred.
 //
-// NOTE FOR THE BUILD AGENT: this file was written on a planning machine with Command Line
-// Tools only, where neither XCTest nor Testing resolves. `swift build` was verified there;
-// `swift test` was NOT. Confirm it runs on the build machine as part of the package
-// skeleton issue.
+// `swift test` is verified working: it passed in CI on macos-latest with Xcode 26.6 /
+// Swift 6.3.3. Earlier revisions of this comment warned it was unvalidated, because the planning
+// machine had Command Line Tools only, where neither XCTest nor Testing resolves. That is
+// resolved; no action needed.
 //
 // Test plan, per PRD:
 //   R-4   importer frame count and reference index, per synthetic fixture
