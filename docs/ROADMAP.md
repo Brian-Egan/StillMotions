@@ -82,10 +82,10 @@ flowchart LR
 are front-loaded deliberately: with them done, the agent runs from #5 to #25 — 21 issues —
 without stopping.
 
-Issue #2 (self-hosted runner and branch protection) was **closed as not planned**. Branch
-protection needs GitHub Pro and rulesets need a Team organization, so no free enforced check
-existed; the runner was dropped rather than kept unenforced. Verification is local, run from a
-clean worktree. See CLAUDE.md.
+Issue #2 (self-hosted runner) was **closed as not planned**. CI runs on GitHub-hosted macOS
+runners instead, which are free and unmetered because the repo is public, and a ruleset requires
+the `verify` check on `main`. Nothing needs installing and nothing on the Mac needs to stay
+running. See CLAUDE.md and docs/RUNBOOK.md.
 
 ### phase-1 Pipeline — 11 issues
 
@@ -151,7 +151,7 @@ gets built at all.
 | 36 | Share extension drop box and manifest | 35 |
 | 37 | App-side pending item drain, idempotent with expiry | 36 |
 | 38 | `H` On-device verification: share from Photos | 37 |
-| 39 | `H` Go public: verify history is clean, flip visibility | 38 |
+| 39 | `H` Wrap-up: AGPL note, final history audit | 38 |
 
 ---
 
@@ -161,12 +161,12 @@ gets built at all.
 | --- | --- | --- |
 | 1 | Install Xcode 27, XcodeGen, Rust | Now |
 | 3 | Export 30-50 Live Photos from Photos on the Mac | Now |
-| 4 | Signing, bundle IDs, App Group in the developer portal and Xcode | Now |
+| 4 | Signing: set the team in project.yml, tick App Groups in Xcode | Now |
 | 26 | Phone in hand: gallery and editor | After phase 3 |
 | 30 | Phone in hand: trim and crop feel | After phase 4 |
 | 35 | Phone in hand: exports, and does the GIF loop in Messages | After phase 5 |
 | 38 | Phone in hand: share from Photos | After phase 6 |
-| 39 | Make the repo public | Last |
+| 39 | Wrap-up checks | Last |
 
 ---
 

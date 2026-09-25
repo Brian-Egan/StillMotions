@@ -17,7 +17,9 @@ command or a named on-device action. GitHub issues reference these IDs.
 | Property | Value |
 | --- | --- |
 | Users | One — the developer. No accounts, servers, analytics, or telemetry. |
-| Distribution | Direct device install during the build; TestFlight later. No App Store. |
+| Distribution | Direct device install from Xcode. No App Store. TestFlight needs a paid membership and is out of scope while development runs on a free Apple personal team. |
+| Apple account | Free personal team. Profiles expire every 7 days, so the app must be rebuilt weekly to keep launching. |
+| Repository | Public, which makes GitHub-hosted CI and rulesets free. Personal fixtures are gitignored and must never be committed (R-26). |
 | Minimum iOS | **27.0** |
 | **Reference device** | **iPhone 14 Pro (A16, 6 GB RAM)** |
 | Processing | Entirely on-device |
@@ -293,9 +295,9 @@ an aggregate summary.
 **R-23 — Regression check.** Compares the aggregate against `harness/baseline.json` and
 fails on any §1.4 condition.
 
-- Run by `scripts/verify.sh`, against synthetic fixtures. Personal fixtures are gitignored, so
-  the committed baseline covers synthetic clips only.
-- **The baseline therefore guards correctness, not quality.** Real-world quality regressions are
+- Run in CI by `scripts/verify.sh` on every pull request, against synthetic fixtures. Personal
+  fixtures are gitignored, so the committed baseline covers synthetic clips only.
+- **CI therefore guards correctness, not quality.** Real-world quality regressions are
   caught locally against personal fixtures plus contact-sheet review. This limitation is
   structural and must not be papered over.
 - *Verify:* `scripts/verify.sh` exits non-zero on a deliberately regressed build.
@@ -311,8 +313,9 @@ dependency and builds and tests on macOS via `swift build` and `swift test`.
 abstraction. The developer reads and tweaks this code.
 
 **R-26 — No secrets in history.** Nothing under `tests/fixtures/personal/`, no signing
-material, and no media outside the synthetic fixtures may ever be committed. The repo
-becomes public at the end of the build and history is exposed in full.
+material, and no media outside the synthetic fixtures may ever be committed. **The repo is
+public**, so every commit and the whole history are visible, and deleting a file later does not
+remove it from history.
 
 - Enforced by `scripts/check-no-private-assets.sh`, which `verify.sh` runs first.
 - *Verify:* staging a file under `tests/fixtures/personal/` makes `verify.sh` fail.

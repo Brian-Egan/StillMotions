@@ -6,16 +6,17 @@ the build agent. The agent reads [CLAUDE.md](../CLAUDE.md).
 The short version: you do four setup tasks once, start Claude Code with a prompt, and it works
 through the GitHub issues on its own until it hits something only you can do.
 
-There is no CI, no runner, and no status checks. Verification runs locally, and the agent is
-instructed to run it against a clean checkout of each pushed branch before merging. See
-"How verification works" below for what that does and does not buy you.
+CI runs on GitHub's own macOS runners, which are free and unmetered because this repo is public,
+and a ruleset requires the `verify` check before anything merges to `main`. There is nothing to
+install and nothing on your Mac to keep running.
 
 ## What you need
 
 - A Mac on Apple silicon, with admin rights
 - Xcode 27 from the App Store
 - An iPhone 14 Pro or newer, and a cable
-- A paid Apple developer account
+- An Apple ID. **A free one is enough** — no $99 Apple Developer Program membership needed. See
+  "Free account limits" below for what that costs you.
 - 30 to 50 of your own Live Photos
 - Claude Code, and `gh` already authenticated
 
@@ -56,14 +57,24 @@ Check all four:
 xcodebuild -version && swift --version && xcodegen --version && cargo --version
 ```
 
-### 2. Make the repo private
+### 2. Confirm the ruleset is in place
 
-Optional, and a preference rather than a requirement. The repo holds a tool built around your
-personal photo library, and issue #39 makes it public at the end anyway.
+The repo is public, so rulesets are free and CI on GitHub-hosted runners is unmetered. A ruleset
+named "verification check" should require the `verify` status check on `main`.
 
 ```bash
-gh repo edit Brian-Egan/StillMotions --visibility private --accept-visibility-change-consequences
+gh api repos/Brian-Egan/StillMotions/rulesets --jq '.[] | {name, enforcement}'
 ```
+
+Expect one entry with `"enforcement": "active"`. If it is missing, add it under Settings, Rules,
+Rulesets: target `main`, tick "Require status checks to pass", and add `verify`.
+
+The check name must stay exactly `verify`. Renaming the workflow job renames the check and the
+ruleset then blocks every merge, because it is waiting for a context nothing produces.
+
+**Do not attach a self-hosted runner to this repo.** It is public, so a fork's pull request could
+propose workflow changes that run on your machine. GitHub-hosted runners cost nothing here. If you
+set one up under an earlier version of this runbook, see "Removing a self-hosted runner" below.
 
 ### 3. Export your Live Photos
 
@@ -94,19 +105,21 @@ first in every verification pass to stop that happening.
 
 ### 4. Set up signing
 
-Two identifiers and an App Group. The App Group is how the share extension passes a photo to
-the app, so the share feature does not work without it.
+On a free personal team there is **no developer-portal step**. Xcode registers the App IDs and
+the App Group for you when it signs. You only need to tell it which team to use.
 
-On developer.apple.com, under Certificates, Identifiers & Profiles, register two App IDs:
+The identifiers, already in `project.yml`:
 
-- `com.began.StillMotions`
-- `com.began.StillMotions.Share`
+- App: `com.began.Still-Motions`
+- Extension: `com.began.Still-Motions.Share`
+- App Group: `group.com.began.Still-Motions`
 
-Enable the App Groups capability on both. Then register the group itself,
-`group.com.began.StillMotions`, and go back to each App ID to tick it.
+The hyphen is deliberate and load-bearing. An explicit App ID claimed by a personal team cannot
+be released without an Apple Developer Support ticket, so `com.began.StillMotions` is being kept
+free for a future paid team. Do not "tidy" these.
 
-Now put your Team ID into the project definition. You will find it in the top right of the
-developer portal, or under Xcode, Settings, Accounts.
+Find your Team ID under Xcode, Settings, Accounts: select your Apple ID, then your personal team.
+It is the ten-character string, or click Manage Certificates if it is not shown.
 
 ```bash
 # edit project.yml, set DEVELOPMENT_TEAM under settings.base
@@ -115,16 +128,58 @@ open StillMotions.xcodeproj
 ```
 
 In Xcode, select each of the two targets in turn and open Signing & Capabilities. Automatically
-manage signing should be on, your team selected, and App Groups should list
-`group.com.began.StillMotions` with no warnings.
+manage signing should be on, your personal team selected, and App Groups should list
+`group.com.began.Still-Motions` with no warnings. If App Groups shows an error mentioning
+personal teams, tell me — that would contradict what Apple support currently says and would
+change the share extension design.
 
-Plug in the iPhone, trust the Mac, and check it shows up as a run destination. Then confirm the
-whole thing builds and commit the change:
+Plug in the iPhone, trust the Mac, and check it shows up as a run destination. Build, then trust
+the developer certificate on the phone the first time you run: Settings, General, VPN & Device
+Management.
 
 ```bash
 xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 git add project.yml && git commit -m "Set development team for signing (#4)" && git push
 ```
+
+### Free account limits
+
+What the free tier costs you, from Apple's membership comparison:
+
+| | Free personal team | Paid, $99/year |
+| --- | --- | --- |
+| Provisioning profile validity | **7 days** | 1 year |
+| App IDs | 10, each expiring after 7 days | unlimited |
+| Devices | 3, expiring after 7 days | 100 per type |
+| Apps per device | 3 | unlimited |
+| TestFlight | no | yes |
+
+Two of these will actually affect you.
+
+**The app stops launching every 7 days.** It stays on the home screen, then simply refuses to
+open. There is no warning and nothing on the phone can extend it. Rebuild from Xcode and you get
+a fresh 7 days. This is the main reason to eventually pay.
+
+**Do not churn the bundle identifiers.** The app and the extension consume one App ID each, and
+adding App Groups forces explicit rather than wildcard IDs. That gives you roughly five clean
+identifier changes per week before `'10' App ID limit in '7' days`. Free accounts cannot see the
+portal's Identifiers list to delete them, so the only remedy is waiting out the week.
+
+### Upgrading to a paid account later
+
+When the weekly rebuild gets old, enrol in the Apple Developer Program and switch the
+identifiers to the unhyphenated ones being held in reserve:
+
+1. In `project.yml`, change `DEVELOPMENT_TEAM` to the new team ID and replace all three
+   identifiers: `com.began.StillMotions`, `com.began.StillMotions.Share`,
+   `group.com.began.StillMotions`.
+2. `xcodegen generate`, then in Xcode confirm both targets sign against the new team.
+3. Register the two App IDs and the App Group in the developer portal, since a paid team manages
+   identifiers there rather than implicitly.
+4. Rebuild to the device. iOS treats this as a **different app**, so the old one stays installed
+   until you delete it and its settings do not carry over. Nothing else is lost; there is no
+   persistent data beyond preferences.
+5. TestFlight becomes available at this point if you want it.
 
 ### Before you walk away
 
@@ -149,21 +204,26 @@ Setup issues #1, #3 and #4 are done. Start with the lowest-numbered open issue i
 earliest open milestone whose blockers are all closed and which is not labeled `human`,
 and keep going: one issue per branch, one pull request each.
 
-There is no CI on this repo. Nothing checks your work but you, and nothing will stop you
-merging a broken branch. So for every issue, before you open the pull request, push the
-branch and run verification against a clean checkout of it:
+CI runs `scripts/verify.sh` on a GitHub-hosted macOS runner for every pull request, and a
+ruleset requires the `verify` check before anything merges. Merge with
+`gh pr merge --auto --squash --delete-branch`, which queues the merge so GitHub lands it
+only once the check is green.
+
+Before opening each pull request, also run verification locally against a clean checkout of
+the pushed branch, so a trivial failure costs you seconds rather than a CI round trip:
 
     git push -u origin issue-N-slug
     git worktree add /tmp/verify-N issue-N-slug
-    ( cd /tmp/verify-N && ./scripts/verify.sh )     # must exit 0
+    ( cd /tmp/verify-N && ./scripts/verify.sh )     # expect exit 0
     git worktree remove /tmp/verify-N
 
 Run it there, not in your working directory, because your working directory has uncommitted
 files and stale build products and will pass when the branch would not. Paste that output
-into the pull request. Then merge with `gh pr merge --squash --delete-branch`.
+into the pull request.
 
 Work through as many issues as you can without me. Stop and tell me only if:
 - the next issue is blocked by an open issue labeled `human`
+- the `verify` check will not run, stays queued, or reports nothing
 - verification fails in a way you cannot fix inside the issue's scope
 - an issue's scope turns out to be wrong, in which case comment on the issue proposing a
   split rather than expanding it yourself
@@ -185,19 +245,15 @@ It stops at #26, the first thing that needs a phone in your hand.
 
 ```bash
 gh pr list --state merged --limit 20         # what has landed
+gh run list --limit 20                       # verification runs and their results
 gh issue list --state closed --limit 20
 gh issue list --label human --state open     # what is waiting on you
 git log --oneline main -20
 ```
 
-Because there is no CI, the pull request bodies are your only record of what was verified. Read
-a few. You are looking for actual command output, not a claim that tests passed. A PR whose body
-says "all tests pass" with nothing pasted is one to check by hand:
-
-```bash
-git checkout main && git pull
-./scripts/verify.sh
-```
+`gh run list` is the trustworthy record: those results come from GitHub, not from the agent's
+account of its own work. Anything merged had a green `verify`, because the ruleset requires it.
+The pull request bodies add the detail, including the harness metrics diff on pipeline changes.
 
 ## How verification works
 
@@ -224,27 +280,27 @@ open /tmp/hp/*/contact-sheet.png
 Open the contact sheets. The metrics catch a broken tracker, but a clip can pass every threshold
 and still look wrong, and the only way to know is to look.
 
-The agent is told to run verification from a **clean worktree** of the pushed branch rather than
-in place. That matters more than it sounds: the most common way "tests pass" turns out to be
-false is a source file that exists on the agent's disk and was never committed. It passes in
-place and fails for everyone else, permanently. Building a fresh checkout catches it immediately.
+The agent also runs verification from a **clean worktree** of the pushed branch before opening the
+pull request, rather than in place. That is not redundant with CI, it is faster feedback on the
+same class of bug: the most common way "tests pass" turns out false is a source file that exists
+on the agent's disk and was never committed. In place it passes; from a fresh checkout it fails at
+once, seconds instead of a CI round trip.
 
 ### What is not covered
 
-Worth being clear about, since there is no second layer:
+CI is a real gate, but it does not cover everything:
 
-- **Nothing enforces any of this.** The agent could skip verification and merge anyway. The PR
-  bodies are the audit trail, and they are written by the same agent doing the work.
-- **The app is never built by verification**, only the pipeline package. Whether the iOS app
-  compiles and runs is established by the on-device checks at the end of each app milestone
+- **The app is never built**, only the pipeline package. Signing needs a keychain and a
+  free-personal-team provisioning profile, which a hosted runner cannot reproduce. Whether the iOS
+  app compiles and runs is established by the on-device checks at the end of each app milestone
   (#26, #30, #35, #38).
 - **Quality is not gated.** The harness compares against a committed baseline for the synthetic
   fixtures, but real stabilization quality on your own photos is a judgement you make by looking
   at contact sheets.
 
-If you later want an independent check, the deleted GitHub Actions workflow is in git history at
-`152d38d` under `.github/workflows/verify.yml`. On a public repo, branch protection is free on
-any plan, so the strongest version of this setup is available after issue #39.
+If you later want CI to build the app too, that needs signing material in the runner's keychain
+(an exported certificate and profile as encrypted secrets). It is doable and it is more moving
+parts than a personal project needs, which is why the on-device checks exist instead.
 
 ## When something goes wrong
 
@@ -264,7 +320,13 @@ xcodegen generate
 filesystem is case-insensitive, so `Tests/` and the `tests/` folder holding the fixtures are the
 same place. Only lowercase `tests/` is used here.
 
-**A merged change broke main.** There is nothing preventing this, so it will eventually happen.
+**`verify` is stuck queued, or a pull request has no check.** Look at the Actions tab. If the
+workflow did not trigger, check that `.github/workflows/verify.yml` exists on the branch. If the
+check name no longer matches what the ruleset requires, every merge blocks — the context must be
+exactly `verify`.
+
+**A merged change broke main.** The ruleset makes this much less likely, but CI does not build the
+app or judge quality, so it can still happen.
 
 ```bash
 git log --oneline -10
@@ -274,45 +336,48 @@ git revert <sha>              # squash merges revert cleanly
 
 Then reopen the issue with what went wrong, so the agent picks it up again rather than moving on.
 
-**The agent is merging without pasting verification output.** Stop the session and remind it of
-the rule in CLAUDE.md. That output is the only evidence you get.
+## Removing a self-hosted runner
 
-## Undoing a GitHub Actions runner
-
-If you set up a self-hosted runner from an earlier version of this runbook, remove it:
+If you set up a self-hosted runner under an earlier version of this runbook, **remove it.** CI now
+uses GitHub-hosted runners, which are free here, and this repo is public, so a fork's pull request
+could propose workflow changes that execute on your machine.
 
 ```bash
+./scripts/teardown-runner.sh --dry-run   # see what it would do first
 ./scripts/teardown-runner.sh
 ```
 
 It stops and uninstalls the launchd service, deregisters the runner from GitHub, deletes any
 `actions.runner.*` launchd job in `~/Library/LaunchAgents`, `/Library/LaunchAgents` and
-`/Library/LaunchDaemons`, kills any listener still running, and restores sleep and disksleep.
-It asks before each destructive step.
-
-```bash
-./scripts/teardown-runner.sh --dry-run   # see what it would do first
-```
+`/Library/LaunchDaemons`, kills any listener still running, and restores sleep and disksleep. It
+asks before each destructive step.
 
 If you disabled sleep without snapshotting the original settings first, it falls back to
-`sudo pmset restoredefaults`.
-
-## Making the repo public at the end
-
-Issue #39.
+`sudo pmset restoredefaults`. Afterwards:
 
 ```bash
-# 1. check the history, not just the working tree
-git log --all --name-only --pretty=format: \
-  | sort -u \
-  | grep -Ei 'fixtures/personal|\.p12$|\.mobileprovision$|\.cer$|\.heic$|\.mov$' \
-  | grep -v 'fixtures/synthetic' \
-  || echo "clean"
-
-# 2. only if step 1 printed clean
-gh repo edit Brian-Egan/StillMotions --visibility public --accept-visibility-change-consequences
+rm -rf ~/actions-runner
+gh api repos/Brian-Egan/StillMotions/actions/runners --jq '.total_count'   # expect 0
 ```
 
-Step 1 is the one to take seriously. Going public exposes every commit ever made, so one personal
-photo or one certificate from months ago becomes public too, and getting it out means rewriting
-history. If that grep finds anything, deal with it before you flip the switch.
+## Keeping private things out of a public repo
+
+The repo is already public, so this is a standing rule rather than a one-off step. Every commit
+you make is visible, and the whole history is visible, so anything committed by mistake stays
+visible even after you delete it.
+
+`scripts/check-no-private-assets.sh` runs first in every verification pass and refuses personal
+fixtures, signing material, stray media, and anything over 10 MB. To audit the history yourself:
+
+```bash
+git log --all --name-only --pretty=format: \
+  | sort -u \
+  | grep -Ei 'fixtures/personal|\.p12$|\.mobileprovision$|\.cer$|\.p8$|\.heic$|\.mov$' \
+  | grep -v 'fixtures/synthetic' \
+  || echo "clean"
+```
+
+This was clean as of the switch to public: the only match is the intentional
+`tests/fixtures/personal/.gitkeep`, and the largest tracked file is 17 KB of Markdown. If it ever
+finds something real, removing it means rewriting history with `git filter-repo` and force-pushing,
+so it is much cheaper to not commit it.

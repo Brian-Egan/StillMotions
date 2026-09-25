@@ -5,6 +5,14 @@
 
 name: StillMotions
 
+# Bundle identifiers deliberately use `Still-Motions`, not `StillMotions`.
+#
+# The project is developed on a FREE Apple personal team. An explicit App ID registered by a
+# personal team is claimed permanently and cannot be self-released, so if the project later moves
+# to a paid team, `com.began.StillMotions` would already be taken by the personal team and would
+# need an Apple Developer Support ticket to free. Using a hyphenated identifier now keeps the
+# unhyphenated one available for that move. See "Upgrading to a paid account" in docs/RUNBOOK.md.
+
 options:
   bundleIdPrefix: com.began
   deploymentTarget:
@@ -18,7 +26,9 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    DEVELOPMENT_TEAM: "" # set by the signing human issue; see docs/ROADMAP.md
+    # Set by the signing issue. On a free personal team this is your personal team ID and
+    # Xcode registers the App IDs for you; there is no developer-portal step.
+    DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     TARGETED_DEVICE_FAMILY: "1" # iPhone only. iPad layouts are a non-goal (PRD §0).
@@ -44,7 +54,7 @@ targets:
         embed: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.began.StillMotions
+        PRODUCT_BUNDLE_IDENTIFIER: com.began.Still-Motions
         INFOPLIST_KEY_CFBundleDisplayName: StillMotions
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
@@ -56,7 +66,7 @@ targets:
       path: App/StillMotions/StillMotions.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.began.StillMotions
+          - group.com.began.Still-Motions
 
   # Share extension. A drop box only: copies the asset into the App Group container and
   # exits. It deliberately does NOT depend on StillMotionsPipeline — if it ever does, the
@@ -68,7 +78,7 @@ targets:
       - path: App/StillMotionsShare
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.began.StillMotions.Share
+        PRODUCT_BUNDLE_IDENTIFIER: com.began.Still-Motions.Share
         INFOPLIST_KEY_CFBundleDisplayName: StillMotions
     info:
       path: App/StillMotionsShare/Info.plist
@@ -84,7 +94,7 @@ targets:
       path: App/StillMotionsShare/StillMotionsShare.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.began.StillMotions
+          - group.com.began.Still-Motions
 
 schemes:
   StillMotions:

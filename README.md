@@ -4,7 +4,7 @@ A personal iOS app that turns Live Photos into stabilized, cleanly looping GIFs 
 It's a successor to Google's MotionStills, which did this better than anything currently on
 the App Store and has since been deprecated.
 
-This app is for one user and is distributed through TestFlight only.
+This app is for one user and is installed directly to his own iPhone from Xcode.
 
 ## What it does
 
@@ -104,13 +104,13 @@ xcodegen generate            # REQUIRED before any xcodebuild; .xcodeproj is not
 xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 ```
 
-`scripts/verify.sh` is the single entry point for verification. There is no CI: no GitHub Actions
-workflow, no runner, no status checks. The build agent is instructed to run it against a clean
-`git worktree` checkout of each pushed branch before opening a pull request, which catches the
-common case of a file that exists locally but was never committed. Nothing enforces that, so the
-pull request bodies are the audit trail. Verification deliberately never runs `xcodebuild`;
-whether the app compiles is established by the on-device checks at the end of each app
-milestone. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
+`scripts/verify.sh` is the single entry point for verification, run both locally and by CI. CI runs
+on GitHub-hosted macOS runners, which are free and unmetered because this repo is public, and a
+ruleset requires the `verify` check before anything merges to `main`. The build agent also runs
+verification locally from a clean `git worktree` checkout of each pushed branch, which catches a
+file that exists locally but was never committed without waiting on a CI round trip. Verification
+never runs `xcodebuild`; whether the app compiles is established by the on-device checks at the end
+of each app milestone. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 Note: `tests/` is lowercase throughout, including the SwiftPM test target. macOS APFS is
 case-insensitive, so a conventional `Tests/` directory would collide with `tests/fixtures/`.
@@ -124,8 +124,9 @@ produces a HEIC and MOV pair for each photo. Put the pairs in `tests/fixtures/pe
 Aim for 30 to 50 clips covering handheld shake, walking, kids and pets, low light, scenes with
 near and far objects, and a few you'd expect to fail.
 
-These must never be committed. The repo becomes public at the end of the build, and making a
-repo public exposes the entire history. `scripts/check-no-private-assets.sh` enforces this.
+These must never be committed. This repo is public, so every commit and the whole history are
+visible, and deleting a file later does not remove it from history.
+`scripts/check-no-private-assets.sh` runs first in every verification pass to stop that happening.
 
 ## Quality harness
 

@@ -11,8 +11,8 @@ Three build products and one package:
 
 | Product | Kind | Bundle ID | Links gifski |
 | --- | --- | --- | --- |
-| `StillMotions` | iOS app, iOS 27.0+ | `com.began.StillMotions` | yes |
-| `StillMotionsShare` | Share extension | `com.began.StillMotions.Share` | **no** |
+| `StillMotions` | iOS app, iOS 27.0+ | `com.began.Still-Motions` | yes |
+| `StillMotionsShare` | Share extension | `com.began.Still-Motions.Share` | **no** |
 | `StillMotionsPipeline` | Local SwiftPM package | — | yes (macOS + iOS) |
 | `stillmotions-harness` | macOS CLI, in the package | — | yes (macOS) |
 
@@ -321,37 +321,38 @@ generator ([0006](decisions/0006-project-generator.md)).
 ```mermaid
 flowchart LR
   AGENT[Build agent] -->|pushes branch| GH[GitHub]
-  AGENT -->|git worktree add| WT[Clean checkout<br/>of the pushed branch]
-  WT --> VERIFY[scripts/verify.sh]
-  VERIFY --> PRIV[check-no-private-assets.sh]
-  VERIFY --> BUILD[swift build]
-  VERIFY --> TEST[swift test]
-  VERIFY --> REG[harness regression<br/>synthetic fixtures]
-  VERIFY -->|exit 0 required| PR[Pull request<br/>output pasted in body]
-  PR --> MAIN[main]
+  AGENT -->|git worktree add| WT[Clean local checkout]
+  WT --> VERIFY1[scripts/verify.sh]
+  GH -->|triggers| CI[GitHub-hosted<br/>macOS runner]
+  CI --> VERIFY2[scripts/verify.sh]
+  VERIFY2 --> PRIV[check-no-private-assets.sh]
+  VERIFY2 --> BUILD[swift build]
+  VERIFY2 --> TEST[swift test]
+  VERIFY2 --> REG[harness regression<br/>synthetic fixtures]
+  CI -->|verify status check| GH
+  GH -->|ruleset requires verify<br/>auto-merge when green| MAIN[main]
 ```
 
-`scripts/verify.sh` is the **single entry point** for verification.
+`scripts/verify.sh` is the **single entry point**, run both locally by the agent and by CI, so
+the two cannot drift apart.
 
-**There is no CI.** No GitHub Actions workflow, no runner, no status checks, no branch
-protection. Branch protection on a private repository requires GitHub Pro and rulesets require an
-organization on GitHub Team, so no free option existed; rather than keep a runner whose verdict
-nothing enforced, the setup was dropped in favour of making the agent's own verification harder
-to get wrong.
+**The gate is enforced.** A repository ruleset requires the `verify` check on `main`, so the agent
+merges with `gh pr merge --auto --squash` and GitHub lands it only when the check passes. This is
+free: the repo is public, and GitHub-hosted standard runners are unmetered for public
+repositories. No self-hosted runner is used, and none should be — a public repo can receive fork
+pull requests that propose workflow changes, which is precisely the exposure a self-hosted runner
+should not have.
 
-The one mechanical safeguard left is that the agent runs verification from a **clean worktree of
-the pushed branch**, not from its working directory. That is deliberate and it catches a specific
-failure: a source file that exists on the agent's disk but was never committed. Verified in
-place, that passes forever; verified from a fresh checkout, it fails at once. The other common
-cases it catches are stale `.build/` products and leftover state in `/tmp`.
+The agent also verifies locally before opening the PR, from a **clean worktree of the pushed
+branch** rather than in place. That is not redundant: it catches a source file that exists on the
+agent's disk but was never committed, in seconds rather than after a CI round trip.
 
-What is not covered, stated plainly because nothing else covers it: nothing enforces that the
-agent verifies at all, so the pull request bodies are the audit trail and they are written by the
-agent doing the work. The iOS app is never built by verification, only the package, so app
-correctness rests on the `human` on-device issues. And real stabilization quality is judged by
-reading contact sheets rather than by any gate.
+Two limits worth stating, since nothing else covers them:
 
-Verification deliberately does **not** run `xcodebuild`. Signing needs keychain unlock and is
-exactly the kind of thing that fails in the middle of a long unattended session. App builds
-belong to the `human` on-device verification issues. Operational commands are in
-[RUNBOOK.md](RUNBOOK.md).
+- **CI never builds the iOS app.** Signing needs a keychain and a free-personal-team provisioning
+  profile, which is not reproducible on a hosted runner. App correctness rests on the `human`
+  on-device issues (#26, #30, #35, #38).
+- **CI guards correctness, not quality.** Personal fixtures are gitignored, so CI only ever sees
+  the synthetic clips. Real stabilization quality is judged locally by reading contact sheets.
+
+Operational commands are in [RUNBOOK.md](RUNBOOK.md).

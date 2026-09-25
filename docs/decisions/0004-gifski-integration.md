@@ -34,8 +34,8 @@ headers, drags in codec licensing, and is unnecessary: AVFoundation decodes, and
 is fed raw RGBA frames.
 
 License is AGPL-3.0-or-later. The brief states licensing is not a constraint, which holds
-for this project: distribution is TestFlight to the developer himself, which is not
-conveying to a third party. If the app were ever distributed further, a commercial
+for this project: the app is installed directly to the developer's own iPhone from Xcode,
+which is not conveying to a third party. If the app were ever distributed further, a commercial
 license from the author would be required — noted here so the constraint is not
 rediscovered later.
 
