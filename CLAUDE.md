@@ -78,7 +78,9 @@ xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 ```
 
 Runner and CI operations are in [docs/RUNBOOK.md](docs/RUNBOOK.md). You do not manage the
-runner; the developer does.
+runner; the developer does. In particular, **never run `scripts/teardown-runner.sh`** — it
+removes the runner and restores the Mac's sleep settings, which would stop your own
+verification from running. It is the developer's cleanup tool for after the build.
 
 ---
 
@@ -192,7 +194,7 @@ XCTest does not resolve). `swift build` was. Confirm `swift test` runs early.
 | `tests/fixtures/synthetic/` | Committed clips with known motion — ground truth |
 | `tests/fixtures/personal/` | Real Live Photos. **Gitignored. Never commit.** |
 | `harness/baseline.json` | Regression baseline |
-| `scripts/` | `verify.sh`, `build-gifski.sh`, `check-no-private-assets.sh` |
+| `scripts/` | `verify.sh`, `build-gifski.sh`, `check-no-private-assets.sh`, `teardown-runner.sh` |
 
 ---
 

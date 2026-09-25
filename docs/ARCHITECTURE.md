@@ -47,7 +47,8 @@ StillMotions/
 ├── scripts/
 │   ├── verify.sh                single entry point for agent and CI
 │   ├── build-gifski.sh          builds Vendor/Gifski.xcframework
-│   └── check-no-private-assets.sh
+│   ├── check-no-private-assets.sh
+│   └── teardown-runner.sh       removes the runner, restores power settings
 ├── Vendor/Gifski.xcframework    GITIGNORED build artifact
 └── docs/
 ```

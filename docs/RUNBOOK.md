@@ -91,9 +91,13 @@ Accept every default it offers. You do not need to add custom labels: the runner
 ./svc.sh status        # want: active, running
 ```
 
-Then stop the Mac sleeping, or jobs will sit in a queue overnight while the agent waits:
+Then stop the Mac sleeping, or jobs will sit in a queue overnight while the agent waits. Save
+your current settings first, so the teardown script can put them back exactly rather than
+guessing:
 
 ```bash
+pmset -g custom > ~/.stillmotions-power-settings
+
 sudo pmset -a sleep 0
 sudo pmset -a disksleep 0
 pmset -g | grep -E ' sleep|disksleep'      # both should read 0
@@ -349,17 +353,43 @@ says nothing about whether the app compiles, which is why every app milestone en
 on-device check you do by hand. And because your photos are not in git, CI only ever sees the
 synthetic clips, so it protects correctness while real quality stays your call.
 
+## Shutting the build rig down
+
+When you are finished, or any time you want your Mac to behave normally again:
+
+```bash
+./scripts/teardown-runner.sh
+```
+
+It stops and uninstalls the launchd service, deregisters the runner from GitHub, deletes any
+`actions.runner.*` launchd job it finds in `~/Library/LaunchAgents`, `/Library/LaunchAgents`
+and `/Library/LaunchDaemons`, kills any listener still running, and restores sleep and
+disksleep from the snapshot you took during setup. It asks before each destructive step, so
+you can decline any of them.
+
+```bash
+./scripts/teardown-runner.sh --dry-run   # see what it would do first
+./scripts/teardown-runner.sh --yes       # no prompts
+```
+
+Safe to run twice. Anything already gone is skipped.
+
+Two things it deliberately leaves alone. It does not remove the required `verify` check, so
+until you untick it in Settings, Branches, pull requests will sit unmergeable with a pending
+check. And it does not delete `~/actions-runner` itself, in case you want to register it again
+without downloading it; it tells you the command if you do want it gone.
+
+If you never took the power snapshot it falls back to `sudo pmset restoredefaults`, which
+restores Apple's defaults rather than whatever you personally had.
+
 ## Making the repo public at the end
 
 Issue #39. Deregister the runner **before** you change visibility, not after, or you leave a
 window where a fork's pull request could run code on your Mac.
 
 ```bash
-# 1. runner off
-cd ~/actions-runner
-./svc.sh stop
-./svc.sh uninstall
-./config.sh remove --token NEW_TOKEN     # fresh token from Settings, Actions, Runners
+# 1. runner off, power settings back
+./scripts/teardown-runner.sh
 
 # 2. drop the required check
 #    Settings, Branches, edit the main rule, untick verify
