@@ -99,47 +99,44 @@ up earlier and has since removed. It is not part of the build; do not run it.
    fixtures if they exist, and **look at the contact sheets**.
 6. **Open a PR** with `Closes #N`, the verification output pasted in, and for pipeline work
    the harness metrics diff against `main`.
-7. **Merge:** `gh pr merge --squash --delete-branch`.
+7. **Merge:** `gh pr merge --auto --squash --delete-branch`.
 
-### Verification is entirely local, and it is on you
+### Merge policy
 
-There is no CI. No GitHub Actions workflow, no runner, no status checks, and no branch
-protection. Nothing outside this session checks your work, and nothing will stop you merging a
-broken branch. Treat the rules below as hard requirements rather than good practice.
+CI runs `scripts/verify.sh` on a GitHub-hosted macOS runner for every pull request, and the
+repository ruleset **requires** the `verify` check on `main`. So `--auto` is correct and required:
+it queues the merge and GitHub lands it only once the check passes. A misread terminal cannot
+merge a red branch.
 
-**Always verify from a clean worktree, never from your working directory.** This is mandatory
-and it is the single most valuable habit here:
+- `--auto` is required, not optional. **Never** merge with failing verification.
+- If the check is queued for a long time or reports nothing, **stop and report**. Do not bypass
+  the ruleset and do not try to edit it.
+- **Never** close an issue directly. The merge closes it via `Closes #N`.
+- One issue per PR. Do not bundle.
+- Do not relax a test, lower a threshold, or skip a check to get a green run. If a threshold is
+  genuinely wrong, say so in a decision record with the measurements behind it.
+
+### Also verify locally, from a clean worktree
+
+CI is the gate, but run verification yourself before opening the PR so you are not waiting on a
+round trip to find a trivial failure. Do it from a clean worktree, not your working directory:
 
 ```bash
-git push -u origin issue-N-short-slug          # push first
+git push -u origin issue-N-short-slug
 
 WT=/tmp/verify-issue-N
 git worktree add "$WT" issue-N-short-slug
-( cd "$WT" && ./scripts/verify.sh )            # must exit 0
+( cd "$WT" && ./scripts/verify.sh )            # expect exit 0
 git worktree remove "$WT"
 ```
 
-Why this and not `./scripts/verify.sh` in place: your working directory has uncommitted files,
-a warm `.build/`, and whatever else accumulated while you worked. A clean worktree builds the
-branch **as pushed**. The most common way "tests pass" turns out to be false is a source file
-that exists locally and was never `git add`ed, which passes in place and fails for everyone
-else, forever. A clean worktree catches it in seconds.
+Why a worktree and not in place: your working directory has uncommitted files, a warm `.build/`,
+and whatever accumulated while you worked. A clean worktree builds the branch **as pushed**. The
+most common way "tests pass" turns out false is a source file that exists locally and was never
+`git add`ed. It passes in place and fails in CI, and finding that out locally takes seconds
+rather than minutes.
 
-Rules:
-
-- `./scripts/verify.sh` must exit 0 **in the clean worktree** before you open the PR. Paste
-  that output into the PR, not the output from your working directory.
-- If it fails, fix the branch and push again. Do not merge and follow up later.
-- Do not relax a test, lower a threshold, or skip a check to get a green run. If a threshold is
-  genuinely wrong, say so in a decision record with the measurements behind it.
-- `gh pr merge --auto` does nothing useful here. There are no checks to wait for, so it merges
-  immediately. Use a plain `gh pr merge --squash --delete-branch`.
-- **Never** close an issue directly. The merge closes it via `Closes #N`.
-- One issue per PR. Do not bundle.
-
-The PR body is the only record of what was verified, so make it specific: the commands you ran,
-their output, and for pipeline work the metrics diff. "All tests pass" is not a verification
-record.
+Paste the worktree run's output into the PR, not your working directory's.
 
 ### When an issue is wrong
 

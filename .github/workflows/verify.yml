@@ -1,0 +1,101 @@
+# Pipeline verification on GitHub-hosted macOS runners.
+#
+# Free and unmetered: "GitHub Actions usage is free for standard GitHub-hosted runners in public
+# repositories" with no minute cap. The 10x macOS multiplier applies only to private repositories.
+# This repo is public, so CI costs nothing and needs no self-hosted runner.
+#
+# The check context is `verify`, which the repository ruleset requires on `main`. **Renaming the
+# job renames the context and silently breaks the ruleset**, which would then block every merge.
+# If you rename it, update the ruleset in the same change.
+#
+# Do NOT attach a self-hosted runner to this repository. It is public, so a pull request from a
+# fork could propose workflow changes that execute on that machine. GitHub-hosted runners are
+# free here and have no such exposure.
+#
+# This deliberately does NOT run xcodebuild against the app. Signing needs a keychain and a
+# provisioning profile from a free personal team, which is not reproducible on a hosted runner.
+# Whether the app compiles and runs is established by the `human` on-device issues.
+
+name: verify
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select the newest installed Xcode
+        # The runner image ships several Xcode versions and the default is not always the newest.
+        # `swift test` needs a full Xcode because XCTest does not resolve under Command Line Tools.
+        run: |
+          latest="$(ls -d /Applications/Xcode*.app | sort -V | tail -1)"
+          echo "using $latest"
+          sudo xcode-select -s "$latest/Contents/Developer"
+          xcodebuild -version
+          swift --version
+
+      - name: Ensure Rust is present
+        # macOS runner images normally ship rustup. Install it if that ever changes, since
+        # scripts/build-gifski.sh needs cargo.
+        run: |
+          if command -v cargo >/dev/null 2>&1; then
+            cargo --version
+          else
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+
+      # gifski is built from Rust source and takes minutes. It changes only when the pinned
+      # version or the build script changes, so key the cache on the script's hash.
+      - name: Cache gifski xcframework
+        id: gifski-cache
+        uses: actions/cache@v4
+        with:
+          path: Vendor/Gifski.xcframework
+          key: gifski-${{ runner.os }}-${{ hashFiles('scripts/build-gifski.sh') }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ hashFiles('scripts/build-gifski.sh') }}
+
+      - name: Build gifski
+        if: steps.gifski-cache.outputs.cache-hit != 'true'
+        run: |
+          # Only needed once CGifski is an active dependency. Until then the commented-out
+          # binaryTarget in Package.swift means the package builds without it.
+          if grep -qE '^\s*\.binaryTarget\(name: "CGifski"' Package.swift; then
+            ./scripts/build-gifski.sh
+          else
+            echo "CGifski not yet active in Package.swift, skipping"
+          fi
+
+      - name: Verify
+        run: ./scripts/verify.sh
+
+      # Contact sheets and metrics are the evidence for a quality regression. Keep them even on
+      # failure, especially on failure.
+      - name: Upload harness output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-output
+          path: harness/out/
+          if-no-files-found: ignore
+          retention-days: 14
