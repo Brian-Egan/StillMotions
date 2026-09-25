@@ -45,10 +45,10 @@ StillMotions/
 │       └── personal/            GITIGNORED, never committed
 ├── harness/baseline.json        regression baseline
 ├── scripts/
-│   ├── verify.sh                single entry point for agent and CI
+│   ├── verify.sh                single verification entry point
 │   ├── build-gifski.sh          builds Vendor/Gifski.xcframework
 │   ├── check-no-private-assets.sh
-│   └── teardown-runner.sh       removes the runner, restores power settings
+│   └── teardown-runner.sh       cleanup only; removes a GitHub Actions runner
 ├── Vendor/Gifski.xcframework    GITIGNORED build artifact
 └── docs/
 ```
@@ -320,36 +320,38 @@ generator ([0006](decisions/0006-project-generator.md)).
 
 ```mermaid
 flowchart LR
-  AGENT[Build agent] -->|opens PR| GH[GitHub]
-  AGENT -->|runs locally| VERIFY[scripts/verify.sh]
-  GH -->|queues job| RUNNER[Self-hosted runner<br/>launchd on the Mac]
-  RUNNER --> VERIFY
+  AGENT[Build agent] -->|pushes branch| GH[GitHub]
+  AGENT -->|git worktree add| WT[Clean checkout<br/>of the pushed branch]
+  WT --> VERIFY[scripts/verify.sh]
+  VERIFY --> PRIV[check-no-private-assets.sh]
   VERIFY --> BUILD[swift build]
   VERIFY --> TEST[swift test]
   VERIFY --> REG[harness regression<br/>synthetic fixtures]
-  VERIFY --> PRIV[check-no-private-assets.sh]
-  RUNNER -->|status check| GH
-  GH -->|agent waits, reads result| AGENT
-  AGENT -->|merges only if green| MAIN[main]
+  VERIFY -->|exit 0 required| PR[Pull request<br/>output pasted in body]
+  PR --> MAIN[main]
 ```
 
-`scripts/verify.sh` is the **single entry point**, called by both the agent and the runner,
-so local and CI verification cannot drift apart.
+`scripts/verify.sh` is the **single entry point** for verification.
 
-**The gate is not enforced by GitHub.** Branch protection on a private repository requires
-GitHub Pro, and rulesets require an organization on GitHub Team; this repo is private under a
-Free personal account. So the agent runs `gh pr checks --watch --fail-fast` and merges only on
-exit 0, and `gh pr merge --auto` is forbidden — with no required checks it merges immediately,
-before the runner has started, which would make the check decorative.
+**There is no CI.** No GitHub Actions workflow, no runner, no status checks, no branch
+protection. Branch protection on a private repository requires GitHub Pro and rulesets require an
+organization on GitHub Team, so no free option existed; rather than keep a runner whose verdict
+nothing enforced, the setup was dropped in favour of making the agent's own verification harder
+to get wrong.
 
-What the runner still provides without enforcement is the part that mattered: the tests run on
-a clean checkout, on hardware the agent does not control, and the verdict is recorded on the
-pull request permanently. What is lost is the mechanical inability to merge red, which is now a
-rule in CLAUDE.md rather than a server-side constraint. A missing check is the dangerous case,
-since it resembles success, so CLAUDE.md requires the agent to stop and report rather than treat
-it as a pass.
+The one mechanical safeguard left is that the agent runs verification from a **clean worktree of
+the pushed branch**, not from its working directory. That is deliberate and it catches a specific
+failure: a source file that exists on the agent's disk but was never committed. Verified in
+place, that passes forever; verified from a fresh checkout, it fails at once. The other common
+cases it catches are stale `.build/` products and leftover state in `/tmp`.
 
-CI deliberately does **not** run `xcodebuild`. Signing an iOS build unattended needs
-keychain unlock and is exactly the kind of thing that fails at 3am. App builds belong to
-the `human` on-device verification issues. Operational commands are in
+What is not covered, stated plainly because nothing else covers it: nothing enforces that the
+agent verifies at all, so the pull request bodies are the audit trail and they are written by the
+agent doing the work. The iOS app is never built by verification, only the package, so app
+correctness rests on the `human` on-device issues. And real stabilization quality is judged by
+reading contact sheets rather than by any gate.
+
+Verification deliberately does **not** run `xcodebuild`. Signing needs keychain unlock and is
+exactly the kind of thing that fails in the middle of a long unattended session. App builds
+belong to the `human` on-device verification issues. Operational commands are in
 [RUNBOOK.md](RUNBOOK.md).

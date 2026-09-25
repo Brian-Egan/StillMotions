@@ -61,7 +61,7 @@ flag is honoured. Where the brief and [docs/PRD.md](docs/PRD.md) disagree, the P
 | `docs/ARCHITECTURE.md` | Modules, data flow, protocols, editor state, diagrams. |
 | `docs/decisions/` | Contested design choices and rejected alternatives. |
 | `docs/ROADMAP.md` | Milestones and issue order. |
-| `docs/RUNBOOK.md` | Verification, the self-hosted runner, going public. |
+| `docs/RUNBOOK.md` | Setup, running a build session, verification, going public. |
 | `project.yml` | XcodeGen manifest. `.xcodeproj` is generated, never hand-edited. |
 | `tests/fixtures/synthetic/` | Generated clips with known motion. Committed. |
 | `tests/fixtures/personal/` | Real Live Photos for quality testing. Gitignored. |
@@ -104,11 +104,13 @@ xcodegen generate            # REQUIRED before any xcodebuild; .xcodeproj is not
 xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 ```
 
-`scripts/verify.sh` is the single entry point, run by both the build agent and CI, so local
-and CI results cannot drift. CI runs on a self-hosted runner on the developer's Mac and
-deliberately never runs `xcodebuild` — unattended signing needs keychain unlock and fails
-overnight. App builds are covered by the on-device verification issues. See
-[docs/RUNBOOK.md](docs/RUNBOOK.md).
+`scripts/verify.sh` is the single entry point for verification. There is no CI: no GitHub Actions
+workflow, no runner, no status checks. The build agent is instructed to run it against a clean
+`git worktree` checkout of each pushed branch before opening a pull request, which catches the
+common case of a file that exists locally but was never committed. Nothing enforces that, so the
+pull request bodies are the audit trail. Verification deliberately never runs `xcodebuild`;
+whether the app compiles is established by the on-device checks at the end of each app
+milestone. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 Note: `tests/` is lowercase throughout, including the SwiftPM test target. macOS APFS is
 case-insensitive, so a conventional `Tests/` directory would collide with `tests/fixtures/`.
@@ -132,8 +134,8 @@ before/after contact sheet, and metrics for crop retention, leftover motion, and
 committed baseline blocks any change that makes the fixture set worse overall. Thresholds are
 in [docs/PRD.md §1](docs/PRD.md).
 
-CI runs the harness against synthetic fixtures only, since personal fixtures aren't in git —
-so **CI guards correctness, not quality.** Real-world quality regressions are caught locally,
+The regression check covers synthetic fixtures only, since personal fixtures aren't in git, so it
+guards correctness rather than quality. Real-world quality regressions are caught locally,
 against personal fixtures, by reading the contact sheets.
 
 ## Credits

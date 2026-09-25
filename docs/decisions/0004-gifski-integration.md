@@ -50,7 +50,7 @@ rediscovered later.
    as a Clang module named `CGifski`.
 5. Assembles `Vendor/Gifski.xcframework` via
    `xcodebuild -create-xcframework -library … -headers …` per slice.
-6. Prints the resulting slice list so CI logs show what was built.
+6. Prints the resulting slice list so the build log shows what was built.
 
 Package.swift consumes it as a binary target:
 
@@ -69,12 +69,9 @@ it blocks the gifski build issue in phase 1.
 
 ## Consequences
 
-- The build machine needs Rust. This is a one-time rustup install, and the script fails
-  loudly with the exact command if it is missing, so the failure is self-explanatory.
-- CI runs on the self-hosted runner, which is the same machine, so Rust is present there
-  too. The workflow caches `Vendor/Gifski.xcframework` keyed on the gifski version and
-  the script's hash, so it rebuilds only when one of those changes — the difference
-  between a multi-minute and a near-zero step on every PR.
+- The build machine needs Rust. This is a one-time rustup install, and the script fails loudly
+  with the exact command if it is missing, so the failure is self-explanatory. The xcframework is
+  built once and reused, so the cost is not per-verification.
 - gifski version bumps are deliberate: change the pinned version in the script, re-run,
   check harness metrics for size and quality drift. Pinning is required, not optional —
   an unpinned encoder makes the regression baseline meaningless.

@@ -67,12 +67,12 @@ Both embed the local `StillMotionsPipeline` SwiftPM package. Both carry App Grou
   reviewable in a PR. This is the whole point.
 - `xcodegen generate` must run before any `xcodebuild`. Forgetting it produces a confusing
   "no such scheme" error, so `scripts/verify.sh` and CLAUDE.md both handle it explicitly.
-- A new Xcode release can briefly outpace XcodeGen. The mitigation is that CI never builds
-  the iOS app — it only builds and tests the package via `swift build`, which does not need
-  the generator at all. A generator lag therefore blocks on-device verification, not the
+- A new Xcode release can briefly outpace XcodeGen. The mitigation is that verification never
+  builds the iOS app — it only builds and tests the package via `swift build`, which does not
+  need the generator at all. A generator lag therefore blocks on-device verification, not the
   main loop.
-- CI stays independent of the generator, which also keeps the unattended overnight path
-  simpler: no `xcodebuild`, no signing, no keychain unlock.
+- Verification stays independent of the generator, which keeps the unattended path simpler: no
+  `xcodebuild`, no signing, no keychain unlock.
 - If gifski's build ends up driven from Xcode build phases, the manifest keeps that
   reproducible rather than hand-clicked. As decided in 0004, gifski is built by a script
   instead, so this does not arise.
@@ -103,4 +103,4 @@ entire rest of this project's build configuration.
   enough to port.
 - A human taking over day-to-day project editing: the generator's main justification
   disappears and committing the project with buildable folders becomes reasonable.
-- Growth to many targets, or CI build times becoming painful: Tuist's caching starts to pay.
+- Growth to many targets, or build times becoming painful: Tuist's caching starts to pay.

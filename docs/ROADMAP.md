@@ -14,9 +14,8 @@ Task-selection rule and merge policy: [CLAUDE.md](../CLAUDE.md) "The task loop".
 ```mermaid
 flowchart LR
   subgraph p0 [phase-0 Setup]
-    I1[1 H toolchain] --> I2[2 H runner]
-    I1 --> I4[4 H signing]
-    I2 --> I5[5 package skeleton]
+    I1[1 H toolchain] --> I4[4 H signing]
+    I1 --> I5[5 package skeleton]
     I4 --> I6[6 project generates]
     I5 --> I6
     I3[3 H fixtures]
@@ -69,20 +68,24 @@ flowchart LR
 
 ## Milestones
 
-### phase-0 Setup — 6 issues, 4 human
+### phase-0 Setup — 5 issues, 3 human
 
 | # | Issue | Blocked by |
 | --- | --- | --- |
-| 1 | `H` Build machine setup: Xcode 27, XcodeGen, Rust, make repo private | — |
-| 2 | `H` Register self-hosted runner, disable sleep, confirm it picks up a job | 1 |
+| 1 | `H` Build machine setup: Xcode 27, XcodeGen, Rust | — |
 | 3 | `H` Export 30-50 personal Live Photo fixtures | — |
 | 4 | `H` Configure signing, bundle identifiers, and the App Group | 1 |
-| 5 | Confirm package skeleton builds and tests; verify.sh green in CI | 2 |
+| 5 | Confirm package skeleton builds and tests from a clean worktree | — |
 | 6 | Generate Xcode project; app and extension build and launch on device | 4, 5 |
 
-**Do all four human issues in one sitting.** #3 and #4 have no dependency on the build and
+**Do all three human issues in one sitting.** #3 and #4 have no dependency on the build and
 are front-loaded deliberately: with them done, the agent runs from #5 to #25 — 21 issues —
 without stopping.
+
+Issue #2 (self-hosted runner and branch protection) was **closed as not planned**. Branch
+protection needs GitHub Pro and rulesets need a Team organization, so no free enforced check
+existed; the runner was dropped rather than kept unenforced. Verification is local, run from a
+clean worktree. See CLAUDE.md.
 
 ### phase-1 Pipeline — 11 issues
 
@@ -148,23 +151,22 @@ gets built at all.
 | 36 | Share extension drop box and manifest | 35 |
 | 37 | App-side pending item drain, idempotent with expiry | 36 |
 | 38 | `H` On-device verification: share from Photos | 37 |
-| 39 | `H` Go public: run teardown, verify history is clean, flip visibility | 38 |
+| 39 | `H` Go public: verify history is clean, flip visibility | 38 |
 
 ---
 
-## Human issues, all nine
+## Human issues, all eight
 
 | # | What it needs from you | When |
 | --- | --- | --- |
-| 1 | Install Xcode 27, XcodeGen, Rust; make the repo private | Now |
-| 2 | Register the runner as a service, disable sleep, confirm it runs a job | Now |
+| 1 | Install Xcode 27, XcodeGen, Rust | Now |
 | 3 | Export 30-50 Live Photos from Photos on the Mac | Now |
 | 4 | Signing, bundle IDs, App Group in the developer portal and Xcode | Now |
 | 26 | Phone in hand: gallery and editor | After phase 3 |
 | 30 | Phone in hand: trim and crop feel | After phase 4 |
 | 35 | Phone in hand: exports, and does the GIF loop in Messages | After phase 5 |
 | 38 | Phone in hand: share from Photos | After phase 6 |
-| 39 | Deregister the runner, then make the repo public | Last |
+| 39 | Make the repo public | Last |
 
 ---
 

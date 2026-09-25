@@ -293,9 +293,9 @@ an aggregate summary.
 **R-23 — Regression check.** Compares the aggregate against `harness/baseline.json` and
 fails on any §1.4 condition.
 
-- Runs in CI on every PR touching the package, against synthetic fixtures only — personal
-  fixtures are not in git.
-- **CI therefore guards correctness, not quality.** Real-world quality regressions are
+- Run by `scripts/verify.sh`, against synthetic fixtures. Personal fixtures are gitignored, so
+  the committed baseline covers synthetic clips only.
+- **The baseline therefore guards correctness, not quality.** Real-world quality regressions are
   caught locally against personal fixtures plus contact-sheet review. This limitation is
   structural and must not be papered over.
 - *Verify:* `scripts/verify.sh` exits non-zero on a deliberately regressed build.
@@ -314,7 +314,7 @@ abstraction. The developer reads and tweaks this code.
 material, and no media outside the synthetic fixtures may ever be committed. The repo
 becomes public at the end of the build and history is exposed in full.
 
-- Enforced by `scripts/check-no-private-assets.sh`, run by `verify.sh` in CI.
+- Enforced by `scripts/check-no-private-assets.sh`, which `verify.sh` runs first.
 - *Verify:* staging a file under `tests/fixtures/personal/` makes `verify.sh` fail.
 
 ---

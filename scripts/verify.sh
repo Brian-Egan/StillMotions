@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Single verification entry point, run by both the build agent and CI.
-# There is deliberately no second code path, so local and CI results cannot drift.
-# See docs/ARCHITECTURE.md §9 and "Running verification yourself" in docs/RUNBOOK.md.
+# Single verification entry point.
+# Run it from a clean `git worktree` checkout of the pushed branch, not from a working
+# directory: uncommitted files and stale build products make an in-place run pass when the
+# branch would not.
+# See docs/ARCHITECTURE.md §9 and "How verification works" in docs/RUNBOOK.md.
 #
 #   ./scripts/verify.sh
 #
-# Exit 0 means every stage passed. This does NOT build the iOS app: CI never runs
-# xcodebuild, because unattended signing needs keychain unlock. App builds belong to the
-# `human` on-device verification issues.
+# Exit 0 means every stage passed. This does NOT build the iOS app: signing needs keychain
+# unlock, so app correctness is established by the `human` on-device verification issues.
 
 set -euo pipefail
 
@@ -57,8 +58,8 @@ fi
 
 # ---------------------------------------------------------------------------
 section "4/4  Harness regression (synthetic fixtures)"
-# CI only ever sees synthetic fixtures, because personal fixtures are gitignored. This
-# guards correctness, not real-world quality — quality is gated locally against personal
+# Only synthetic fixtures have a committed baseline, because personal fixtures are gitignored.
+# This guards correctness, not real-world quality — quality is judged locally against personal
 # fixtures plus contact-sheet review. See PRD R-23.
 SYNTH_DIR="tests/fixtures/synthetic"
 BASELINE="harness/baseline.json"

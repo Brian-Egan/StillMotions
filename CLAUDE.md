@@ -77,10 +77,9 @@ xcodegen generate
 xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
 ```
 
-Runner and CI operations are in [docs/RUNBOOK.md](docs/RUNBOOK.md). You do not manage the
-runner; the developer does. In particular, **never run `scripts/teardown-runner.sh`** — it
-removes the runner and restores the Mac's sleep settings, which would stop your own
-verification from running. It is the developer's cleanup tool for after the build.
+Developer-facing setup and operations are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
+`scripts/teardown-runner.sh` exists only to clean up a GitHub Actions runner the developer set
+up earlier and has since removed. It is not part of the build; do not run it.
 
 ---
 
@@ -94,44 +93,52 @@ verification from running. It is the developer's cleanup tool for after the buil
 3. **Branch:** `issue-N-short-slug`.
 4. **Implement.** Stay inside the issue's Scope. Read the referenced PRD sections and
    decision records first — they contain constraints that are not repeated in the issue.
-5. **Verify.** Run the issue's Verify commands, plus `./scripts/verify.sh` for any change
-   touching the package. For pipeline changes, also run the harness against personal
+5. **Verify.** Run the issue's Verify commands, plus the clean-worktree run below for any
+   change touching the package. For pipeline changes, also run the harness against personal
    fixtures if they exist, and **look at the contact sheets**.
 6. **Open a PR** with `Closes #N`, the verification output pasted in, and for pipeline work
    the harness metrics diff against `main`.
-7. **Wait for the `verify` check, then merge only if it passed:**
+7. **Merge:** `gh pr merge --squash --delete-branch`.
+
+### Verification is entirely local, and it is on you
+
+There is no CI. No GitHub Actions workflow, no runner, no status checks, and no branch
+protection. Nothing outside this session checks your work, and nothing will stop you merging a
+broken branch. Treat the rules below as hard requirements rather than good practice.
+
+**Always verify from a clean worktree, never from your working directory.** This is mandatory
+and it is the single most valuable habit here:
 
 ```bash
-gh pr create --fill --body "Closes #N
+git push -u origin issue-N-short-slug          # push first
 
-<verification output>"
-
-gh pr checks --watch --fail-fast     # blocks until checks finish; non-zero if any fail
-gh pr merge --squash --delete-branch # only run this if the line above succeeded
+WT=/tmp/verify-issue-N
+git worktree add "$WT" issue-N-short-slug
+( cd "$WT" && ./scripts/verify.sh )            # must exit 0
+git worktree remove "$WT"
 ```
 
-### Merge policy
+Why this and not `./scripts/verify.sh` in place: your working directory has uncommitted files,
+a warm `.build/`, and whatever else accumulated while you worked. A clean worktree builds the
+branch **as pushed**. The most common way "tests pass" turns out to be false is a source file
+that exists locally and was never `git add`ed, which passes in place and fails for everyone
+else, forever. A clean worktree catches it in seconds.
 
-**Do not use `gh pr merge --auto`.** Auto-merge waits only when something is pending, and this
-repo has no required status checks, so `--auto` merges immediately — before the runner has even
-picked up the job. The check would run after the merge and be pointless. Wait explicitly with
-`gh pr checks --watch --fail-fast` instead.
+Rules:
 
-There is no branch protection enforcing this. Branch protection on a private repository needs
-GitHub Pro, and rulesets need an organization on GitHub Team; this repo is private under a Free
-personal account, so GitHub will let you merge a red branch. **You are the enforcement.** That
-makes the rule below absolute rather than advisory:
-
-- `gh pr checks --watch --fail-fast` must exit 0 before you merge. If it exits non-zero, the
-  check failed: fix the branch and push again.
-- If it exits **8**, checks are still pending. Run it again. Never merge on pending.
-- If it reports **no checks at all**, something is wrong: either the runner is offline or the
-  workflow did not trigger. **Stop and report it.** Do not treat a missing check as a pass.
+- `./scripts/verify.sh` must exit 0 **in the clean worktree** before you open the PR. Paste
+  that output into the PR, not the output from your working directory.
+- If it fails, fix the branch and push again. Do not merge and follow up later.
+- Do not relax a test, lower a threshold, or skip a check to get a green run. If a threshold is
+  genuinely wrong, say so in a decision record with the measurements behind it.
+- `gh pr merge --auto` does nothing useful here. There are no checks to wait for, so it merges
+  immediately. Use a plain `gh pr merge --squash --delete-branch`.
 - **Never** close an issue directly. The merge closes it via `Closes #N`.
 - One issue per PR. Do not bundle.
 
-The check result is recorded permanently on every PR, so a merge made without a green check is
-visible afterwards. Do not create one.
+The PR body is the only record of what was verified, so make it specific: the commands you ran,
+their output, and for pipeline work the metrics diff. "All tests pass" is not a verification
+record.
 
 ### When an issue is wrong
 
@@ -207,7 +214,7 @@ XCTest does not resolve). `swift build` was. Confirm `swift test` runs early.
 | `docs/ARCHITECTURE.md` | Targets, modules, data flow, protocols, editor state, traps |
 | `docs/decisions/` | Contested choices, rejected alternatives, what would change them |
 | `docs/ROADMAP.md` | Milestone and issue index |
-| `docs/RUNBOOK.md` | Runner and verification operations (developer-facing) |
+| `docs/RUNBOOK.md` | Setup and operations for the developer |
 | `project.yml` | XcodeGen manifest — the project's source of truth |
 | `Package.swift` | `StillMotionsPipeline` |
 | `Sources/` | Pipeline modules. No UI, no PhotoKit. |
@@ -217,7 +224,7 @@ XCTest does not resolve). `swift build` was. Confirm `swift test` runs early.
 | `tests/fixtures/synthetic/` | Committed clips with known motion — ground truth |
 | `tests/fixtures/personal/` | Real Live Photos. **Gitignored. Never commit.** |
 | `harness/baseline.json` | Regression baseline |
-| `scripts/` | `verify.sh`, `build-gifski.sh`, `check-no-private-assets.sh`, `teardown-runner.sh` |
+| `scripts/` | `verify.sh`, `build-gifski.sh`, `check-no-private-assets.sh` (plus `teardown-runner.sh`, not used by the build) |
 
 ---
 
