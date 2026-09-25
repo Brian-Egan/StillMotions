@@ -4,7 +4,7 @@
 # This exists because the repo is private during the build and PUBLIC afterwards, and
 # making a repo public exposes the entire history. A single personal Live Photo committed
 # months earlier becomes public, and removing it means rewriting history.
-# See PRD R-26 and docs/RUNBOOK.md §6.
+# See PRD R-26 and "Making the repo public at the end" in docs/RUNBOOK.md.
 #
 #   ./scripts/check-no-private-assets.sh
 #
@@ -76,6 +76,6 @@ To unstage without deleting from disk:
   git rm --cached <file>
 
 If a file is already committed, it must be removed from history before the repo is made
-public. See docs/RUNBOOK.md §6.
+public. See "Making the repo public at the end" in docs/RUNBOOK.md.
 EOF
 exit 1

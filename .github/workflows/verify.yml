@@ -1,6 +1,7 @@
 # Pipeline verification. Runs on the self-hosted macOS runner so it costs no GitHub
 # minutes and has Xcode, Rust, and the toolchain already present.
-# See docs/RUNBOOK.md §2 for runner setup and docs/ARCHITECTURE.md §9 for the topology.
+# Runner setup is in docs/RUNBOOK.md ("Set up the runner"); the topology is in
+# docs/ARCHITECTURE.md §9.
 #
 # The check name `verify` is what branch protection requires. Renaming the job breaks the
 # required check silently — update the branch protection rule if you ever do.

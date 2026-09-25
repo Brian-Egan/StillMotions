@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Single verification entry point, run by both the build agent and CI.
 # There is deliberately no second code path, so local and CI results cannot drift.
-# See docs/ARCHITECTURE.md §9 and docs/RUNBOOK.md §1.
+# See docs/ARCHITECTURE.md §9 and "Running verification yourself" in docs/RUNBOOK.md.
 #
 #   ./scripts/verify.sh
 #
