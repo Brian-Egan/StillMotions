@@ -72,6 +72,25 @@ Rulesets: target `main`, tick "Require status checks to pass", and add `verify`.
 The check name must stay exactly `verify`. Renaming the workflow job renames the check and the
 ruleset then blocks every merge, because it is waiting for a context nothing produces.
 
+The repository also needs auto-merge enabled, otherwise the agent's `gh pr merge --auto` fails and
+it has no correct way to land work:
+
+```bash
+gh api repos/Brian-Egan/StillMotions \
+  --jq '{allow_auto_merge, allow_squash_merge, allow_merge_commit, delete_branch_on_merge}'
+```
+
+Expect auto-merge and squash true, merge commits false, delete-on-merge true. To set them:
+
+```bash
+gh api --method PATCH repos/Brian-Egan/StillMotions \
+  -F allow_auto_merge=true -F delete_branch_on_merge=true \
+  -F allow_merge_commit=false -F allow_rebase_merge=false
+```
+
+Squash-only is deliberate: it keeps one commit per issue on `main`, which is what makes
+`git revert <sha>` a clean undo when something does slip through.
+
 **Do not attach a self-hosted runner to this repo.** It is public, so a fork's pull request could
 propose workflow changes that run on your machine. GitHub-hosted runners cost nothing here. If you
 set one up under an earlier version of this runbook, see "Removing a self-hosted runner" below.

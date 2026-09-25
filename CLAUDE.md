@@ -109,6 +109,9 @@ it queues the merge and GitHub lands it only once the check passes. A misread te
 merge a red branch.
 
 - `--auto` is required, not optional. **Never** merge with failing verification.
+- If `gh pr merge --auto` errors with something about auto-merge not being allowed, **stop and
+  report**. It means the repository setting was turned off, and the fix is a settings change, not
+  a plain `gh pr merge` that would bypass the check entirely.
 - If the check is queued for a long time or reports nothing, **stop and report**. Do not bypass
   the ruleset and do not try to edit it.
 - **Never** close an issue directly. The merge closes it via `Closes #N`.
