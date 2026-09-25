@@ -75,7 +75,7 @@ swift run stillmotions-harness --fixtures tests/fixtures/synthetic \
 
 # Xcode project — REQUIRED before any xcodebuild. .xcodeproj is not in git.
 xcodegen generate
-xcodebuild -scheme StillMotions -destination 'generic/platform=iOS' build
+xcodebuild -scheme StillMotions -destination 'generic/platform=iOS Simulator' build
 ```
 
 Developer-facing setup and operations are in [docs/RUNBOOK.md](docs/RUNBOOK.md).
@@ -152,6 +152,50 @@ expand scope, and do not implement something materially different from what the 
 
 Design changes go in `docs/decisions/` **via the PR**, never only in an issue comment. An
 issue comment is not documentation; the next agent reads the repo, not the issue history.
+
+---
+
+## The agent never needs a physical device
+
+**Always build the app for the simulator: `-destination 'generic/platform=iOS Simulator'`.** Never
+`generic/platform=iOS`, and never a connected device.
+
+Three reasons, all of which have bitten this project:
+
+1. **The phone is usually not attached.** The developer runs sessions overnight with the phone
+   elsewhere. An issue that needs hardware to close is an issue that stalls until morning.
+2. **A device build needs a provisioning profile and a codesign pass.** Codesign touching the
+   private key can raise a modal keychain prompt, which hangs an unattended run silently until
+   someone clicks it.
+3. **Free-team profiles expire every 7 days.** A device build would start failing weekly for a
+   reason that has nothing to do with the code.
+
+A simulator build needs none of those. It still compiles both targets, embeds the appex, and
+catches every compile and link error that matters.
+
+### Never write a device claim into an agent issue
+
+If something can only be established on hardware — how it feels, whether it looks right, a latency
+or memory measurement, anything touching a real photo library or iCloud — it belongs in the
+milestone's `human` verification issue, not in yours:
+
+| Milestone | Device verification issue |
+| --- | --- |
+| phase-0 | #44 (install, launch, trust, App Groups) |
+| phase-3 | #26 (gallery, editor, preview latency, decision 0001) |
+| phase-4 | #30 (trim and crop overrides) |
+| phase-5 | #35 (exports, iMessage GIF loop, LOOP atom) |
+| phase-6 | #38 (share from Photos, extension memory) |
+
+This applies when you **write or split issues** too, which is the easy way to reintroduce the
+problem. If a criterion you are about to write needs a phone, put it in the `human` issue and
+reference it from yours.
+
+**Do not measure performance on the simulator.** It runs on the Mac's CPU with a different memory
+system and no Neural Engine, so a simulator timing tells you nothing about the iPhone 14 Pro
+budgets in PRD §1.3. Where a budget exists, your job is to **instrument** the path so the number
+can be read off on hardware without further code changes. Reporting a simulator timing as if it
+meant something is worse than reporting nothing.
 
 ---
 
