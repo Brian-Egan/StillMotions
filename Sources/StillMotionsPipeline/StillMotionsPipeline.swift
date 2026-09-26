@@ -1,6 +1,12 @@
 // StillMotionsPipeline — the public façade.
 //
-// EMPTY BY DESIGN. The planning session writes no feature code.
+// Re-exports PipelineCore so the app and the harness reach the shared vocabulary
+// (FixtureTruth, and from issue #9 onward Correspondence/FrameMotion/CameraPath) through
+// this single import, matching the ARCHITECTURE §2 dependency diagram: HARNESS --> FACADE
+// only, never straight to an internal module.
+@_exported import PipelineCore
+
+// Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //
 // The only module the app may import. Everything else in Sources/ is implementation
 // detail, so the pipeline's internals can be restructured without touching app code.
