@@ -28,6 +28,10 @@ let package = Package(
 
         // MARK: - Pipeline stages
 
+        // File-based import (HEIC + MOV pair) and the streaming frame decoder. Not in the
+        // original ARCHITECTURE §1 module table — added in #8 because AVFoundation (needed
+        // to decode) is beyond PipelineCore's stated Foundation/CoreVideo/simd-only scope.
+        .target(name: "Import", dependencies: ["PipelineCore"]),
         .target(name: "MotionEstimation", dependencies: ["PipelineCore"]),
         .target(name: "CameraPath", dependencies: ["PipelineCore"]),
         .target(name: "LoopSelection", dependencies: ["PipelineCore"]),
@@ -58,6 +62,7 @@ let package = Package(
             name: "StillMotionsPipeline",
             dependencies: [
                 "PipelineCore",
+                "Import",
                 "MotionEstimation",
                 "CameraPath",
                 "LoopSelection",
