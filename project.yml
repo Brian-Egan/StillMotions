@@ -55,6 +55,11 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.began.Still-Motions
+        # StillMotionsShare gets its Info.plist from an explicit `info:` block below;
+        # this target only sets INFOPLIST_KEY_* values, which needs GENERATE_INFOPLIST_FILE
+        # or there is no plist for Xcode to embed and codesign fails before signing is
+        # ever reached (issue #6).
+        GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: StillMotions
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
