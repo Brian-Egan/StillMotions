@@ -330,6 +330,6 @@ Resolved during the build, not assumed now:
 | --- | --- |
 | Registration vs optical flow | Phase-1 spike ([0001](decisions/0001-motion-estimation.md)) |
 | Whether L1 is needed | Phase-2 crop-retention gate ([0002](decisions/0002-camera-path-solver.md)) |
-| Live Photo source frame rate (15 vs 30) — affects GIF decimation | Measured in R-4 |
+| Live Photo source frame rate (15 vs 30) — affects GIF decimation | R-4's importer reads `AVAssetTrack.nominalFrameRate` generically and is tested against the synthetic fixtures (30 fps by construction, #7). The real-world 15-vs-30 question needs actual Live Photos, which are gitignored and out of phase-1's synthetic-only scope — measure this once personal fixtures are in play (#18) or on-device (#26), not by proxy on the build Mac. |
 | Real extension memory ceiling on iOS 27 | Measured in R-2 |
 | Whether the QuickTime `LOOP` atom works in iMessage | Phase-5 `human` experiment ([0005](decisions/0005-looping-export.md)) |

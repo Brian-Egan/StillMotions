@@ -5,6 +5,7 @@
 // this single import, matching the ARCHITECTURE §2 dependency diagram: HARNESS --> FACADE
 // only, never straight to an internal module.
 @_exported import PipelineCore
+@_exported import Import
 
 // Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //
