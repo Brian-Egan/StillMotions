@@ -1,18 +1,27 @@
-// HarnessCLI — the stillmotions-harness executable.
-//
-// EMPTY BY DESIGN. The planning session writes no feature code.
-//
-// A macOS CLI that processes a fixture folder and writes, per clip: the exported GIF and
-// MP4, a before/after contact sheet, and a metrics JSON — plus an aggregate summary.
-// Then compares the aggregate against harness/baseline.json (PRD R-22, R-23).
-//
-// Planned interface, as referenced by scripts/verify.sh:
-//
-//   stillmotions-harness --fixtures <dir> --out <dir> [--baseline harness/baseline.json]
-//                        [--estimator registration|flow] [--solver warp|l1]
-//                        [--update-baseline]
-//
-// Exits non-zero when the regression check fails, which is what gates auto-merge.
-//
-// The contact sheets exist so the build agent LOOKS AT THE OUTPUT when tuning rather than
-// trusting the numbers. A clip can pass all three thresholds and still look wrong.
+import Foundation
+
+// stillmotions-harness — see docs/PRD.md R-22, R-23 and docs/ARCHITECTURE.md §9 for the
+// full interface this CLI grows into across phase 1. Today it only knows
+// `generate-fixtures`; later issues add the default metrics run and `benchmark-estimators`.
+
+func fail(_ message: String) -> Never {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+    exit(1)
+}
+
+let arguments = CommandLine.arguments
+
+guard arguments.count > 1 else {
+    fail("usage: stillmotions-harness <generate-fixtures> [options]")
+}
+
+switch arguments[1] {
+case "generate-fixtures":
+    do {
+        try FixtureGenerator.run(arguments: Array(arguments.dropFirst(2)))
+    } catch {
+        fail("generate-fixtures failed: \(error)")
+    }
+default:
+    fail("unknown subcommand: \(arguments[1])")
+}
