@@ -81,8 +81,12 @@ rewrite:
 
 ```swift
 public protocol MotionEstimator {
-    /// Transform mapping `frame` onto `reference`.
-    func estimate(frame: CVPixelBuffer, reference: CVPixelBuffer) throws -> FrameMotion
+    /// Maps the reference frame's coordinates onto this frame's coordinates
+    /// (`pFrame = transform * pReference`) — verified empirically against
+    /// `VisionRegistrationEstimator` in #9. An earlier draft of this comment had the
+    /// direction backwards ("mapping frame onto reference"); corrected via #9's PR,
+    /// alongside `async` (Vision's request APIs have no synchronous equivalent).
+    func estimate(frame: CVPixelBuffer, reference: CVPixelBuffer) async throws -> FrameMotion
 }
 
 public struct FrameMotion {

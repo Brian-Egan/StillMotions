@@ -41,42 +41,34 @@ enum SyntheticCanvas {
         let size = CGSize(width: outputSize.width + CGFloat(margin) * 2, height: outputSize.height + CGFloat(margin) * 2)
         let extent = CGRect(origin: .zero, size: size)
 
-        let checker = CIFilter.checkerboardGenerator()
-        checker.center = CGPoint(x: size.width / 2, y: size.height / 2)
-        checker.color0 = CIColor(red: 0.82, green: 0.84, blue: 0.86)
-        checker.color1 = CIColor(red: 0.30, green: 0.34, blue: 0.40)
-        checker.width = 240
-        checker.sharpness = 1
-
         let gradient = CIFilter.smoothLinearGradient()
         gradient.point0 = CGPoint(x: 0, y: 0)
         gradient.point1 = CGPoint(x: size.width, y: size.height)
         gradient.color0 = CIColor(red: 0.95, green: 0.55, blue: 0.20, alpha: 0.35)
         gradient.color1 = CIColor(red: 0.15, green: 0.45, blue: 0.85, alpha: 0.35)
+        var image = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: extent)
+        image = gradient.outputImage!.cropped(to: extent).composited(over: image)
 
-        var image = checker.outputImage!.cropped(to: extent)
-        let gradientImage = gradient.outputImage!.cropped(to: extent)
-        image = gradientImage.composited(over: image)
-
-        // A handful of fixed, distinctly-colored/sized circles so no two crops of the
-        // canvas look alike — breaks the translational ambiguity a pure checkerboard tile
-        // would otherwise have at multiples of its tile width.
-        let landmarks: [(CGPoint, CGFloat, CIColor)] = [
-            (CGPoint(x: 180, y: 220), 90, CIColor(red: 0.85, green: 0.15, blue: 0.15)),
-            (CGPoint(x: size.width - 260, y: 180), 70, CIColor(red: 0.15, green: 0.65, blue: 0.25)),
-            (CGPoint(x: size.width * 0.5, y: size.height - 200), 110, CIColor(red: 0.95, green: 0.85, blue: 0.10)),
-            (CGPoint(x: 300, y: size.height - 320), 55, CIColor(red: 0.55, green: 0.20, blue: 0.75)),
-            (CGPoint(x: size.width - 180, y: size.height * 0.55), 65, CIColor(red: 0.10, green: 0.55, blue: 0.75)),
-        ]
-        for (center, radius, color) in landmarks {
+        // A dense field of randomly sized/positioned/colored circles — deliberately
+        // aperiodic. An earlier version used `CICheckerboardGenerator`: regular tiling
+        // gave whole-image homographic registration local, self-consistent-but-wrong
+        // solutions at some rotation angles (up to ~4px RMS, found while measuring #9's
+        // accuracy — a periodic pattern is a textbook aperture-problem trap). Random
+        // circles at varied scales give every crop of the canvas a locally unique
+        // appearance, which is what registration actually needs.
+        var rng = DeterministicRNG(seed: 0xB16B00B5)
+        let circleCount = 260
+        for _ in 0..<circleCount {
+            let radius = 12.0 + rng.nextUnit() * 70.0
+            let center = CGPoint(x: rng.nextUnit() * size.width, y: rng.nextUnit() * size.height)
+            let color = CIColor(red: rng.nextUnit(), green: rng.nextUnit(), blue: rng.nextUnit())
             let circle = CIFilter.radialGradient()
             circle.center = center
-            circle.radius0 = Float(radius) * 0.85
+            circle.radius0 = Float(radius) * 0.9
             circle.radius1 = Float(radius)
             circle.color0 = color
             circle.color1 = color.withAlphaComponent(0)
-            let circleImage = circle.outputImage!.cropped(to: extent)
-            image = circleImage.composited(over: image)
+            image = circle.outputImage!.cropped(to: extent).composited(over: image)
         }
 
         return image.cropped(to: extent)
