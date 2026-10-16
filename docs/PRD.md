@@ -330,6 +330,6 @@ Resolved during the build, not assumed now:
 | --- | --- |
 | Registration vs optical flow | Phase-1 spike ([0001](decisions/0001-motion-estimation.md)) |
 | Whether L1 is needed | Phase-2 crop-retention gate ([0002](decisions/0002-camera-path-solver.md)) |
-| Live Photo source frame rate (15 vs 30) — affects GIF decimation | R-4's importer reads `AVAssetTrack.nominalFrameRate` generically and is tested against the synthetic fixtures (30 fps by construction, #7). The real-world 15-vs-30 question needs actual Live Photos, which are gitignored and out of phase-1's synthetic-only scope — measure this once personal fixtures are in play (#18) or on-device (#26), not by proxy on the build Mac. |
+| Live Photo source frame rate (15 vs 30) — affects GIF decimation | **Resolved (#59), measured on 111 real Live Photos from an iPhone 14 Pro: neither, and not constant.** Nominal (average) rate has median 28.8 fps and p90 29.6, but 28% of clips average below 24 fps (minimum 10.2): the video is **variable frame rate**, slower in low light. Clips are also shorter than the 3 s assumed: median duration 1.97 s (0.27 to 3.03 s), median 52 frames. Consequences: GIF decimation and MP4 timestamps must follow each frame's real presentation time, not an assumed constant rate (issue #64). |
 | Real extension memory ceiling on iOS 27 | Measured in R-2 |
 | Whether the QuickTime `LOOP` atom works in iMessage | Phase-5 `human` experiment ([0005](decisions/0005-looping-export.md)) |

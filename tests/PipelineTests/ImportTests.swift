@@ -54,6 +54,63 @@ final class ImportTests: XCTestCase {
         XCTAssertNotEqual(descriptor.referenceFrameIndex, frameCount / 2)
     }
 
+    func testReferenceFrameIndexComesFromTheStillImageTimeMetadataTrack() async throws {
+        // The real-file path: a Live Photo's MOV has a timed metadata track whose
+        // `still-image-time` sample sits at the still's moment (measured on real files). No EXIF
+        // marker at all here, so this can only come from the track.
+        let stillFrameIndex = 41
+        let clip = try Self.makeTestClip(
+            frameCount: 60, frameRate: 30.0, stillOffsetSeconds: nil, stillImageTime: Double(stillFrameIndex) / 30.0
+        )
+        defer { try? FileManager.default.removeItem(at: clip.directory) }
+
+        let descriptor = try await LivePhotoImporter.describeClip(heicURL: clip.heic, movURL: clip.mov)
+        XCTAssertEqual(descriptor.referenceFrameIndex, stillFrameIndex)
+    }
+
+    func testTheMetadataTrackWinsOverAConflictingExifTime() async throws {
+        // EXIF says frame 10, the movie's own marker says frame 41. The marker is exact; EXIF is
+        // only good to about a second.
+        let clip = try Self.makeTestClip(
+            frameCount: 60, frameRate: 30.0, stillOffsetSeconds: 10.0 / 30.0, stillImageTime: 41.0 / 30.0
+        )
+        defer { try? FileManager.default.removeItem(at: clip.directory) }
+        let descriptor = try await LivePhotoImporter.describeClip(heicURL: clip.heic, movURL: clip.mov)
+        XCTAssertEqual(descriptor.referenceFrameIndex, 41)
+    }
+
+    func testExifLocalTimeIsInterpretedWithItsUTCOffset() async throws {
+        // What a real Live Photo does: the HEIC's EXIF time is LOCAL with a separate
+        // `OffsetTimeOriginal`, the movie's date is absolute. Reading the local time as UTC put
+        // every real clip's still four hours before its movie and clamped it to frame 0.
+        let clip = try Self.makeTestClip(
+            frameCount: 60, frameRate: 30.0, stillOffsetSeconds: 41.0 / 30.0, exifUTCOffset: "-04:00"
+        )
+        defer { try? FileManager.default.removeItem(at: clip.directory) }
+        let descriptor = try await LivePhotoImporter.describeClip(heicURL: clip.heic, movURL: clip.mov)
+        XCTAssertEqual(descriptor.referenceFrameIndex, 41)
+    }
+
+    func testStillTimeMapsToTheNearestActualFrameTimeNotTimeTimesFrameRate() {
+        // A variable-frame-rate clip: 30 fps, then a slow stretch, then 30 fps again. At the
+        // nominal average rate, 1.20 s would be frame 36; the frame actually nearest is 33.
+        let times: [Double] = [0, 0.033, 0.066, 0.1, 0.133, 0.166, 0.5, 0.8, 1.1, 1.15, 1.2 + 0.001, 1.233, 1.266]
+        let index = LivePhotoImporter.nearestFrame(to: 1.2, in: times)
+        XCTAssertEqual(index, 10)
+        XCTAssertEqual(LivePhotoImporter.nearestFrame(to: nil, in: times), 0, "no marker means frame 0")
+        XCTAssertEqual(LivePhotoImporter.nearestFrame(to: -3, in: times), 0)
+        XCTAssertEqual(LivePhotoImporter.nearestFrame(to: 99, in: times), times.count - 1)
+        XCTAssertEqual(LivePhotoImporter.nearestFrame(to: 0.5, in: []), 0)
+    }
+
+    func testUTCOffsetParsing() {
+        XCTAssertEqual(LivePhotoImporter.offsetSeconds("-04:00"), -4 * 3600)
+        XCTAssertEqual(LivePhotoImporter.offsetSeconds("+05:30"), 5.5 * 3600)
+        XCTAssertEqual(LivePhotoImporter.offsetSeconds("+00:00"), 0)
+        XCTAssertEqual(LivePhotoImporter.offsetSeconds(nil), 0)
+        XCTAssertEqual(LivePhotoImporter.offsetSeconds("garbage"), 0)
+    }
+
     func testReferenceFrameIndexFallsBackToZeroWithoutAMarker() async throws {
         let clip = try Self.makeTestClip(frameCount: 30, frameRate: 30.0, stillOffsetSeconds: nil)
         defer { try? FileManager.default.removeItem(at: clip.directory) }
@@ -156,7 +213,13 @@ final class ImportTests: XCTestCase {
         frameCount: Int,
         frameRate: Double,
         frameSize: CGSize = CGSize(width: 64, height: 64),
-        stillOffsetSeconds: Double?
+        stillOffsetSeconds: Double?,
+        /// Writes the movie's timed `still-image-time` metadata track at this time, as a real
+        /// Live Photo has.
+        stillImageTime: Double? = nil,
+        /// Writes the EXIF time as LOCAL time in this offset (`"-04:00"`) with `OffsetTimeOriginal`,
+        /// as a real Live Photo does. nil writes UTC with no offset (the older test convention).
+        exifUTCOffset: String? = nil
     ) throws -> TestClip {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -183,8 +246,38 @@ final class ImportTests: XCTestCase {
         ]
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: attributes)
         writer.add(input)
+
+        var stillMetadata: (input: AVAssetWriterInput, adaptor: AVAssetWriterInputMetadataAdaptor)?
+        if stillImageTime != nil {
+            let identifier = "mdta/com.apple.quicktime.still-image-time"
+            let specifications: [[String: Any]] = [[
+                kCMMetadataFormatDescriptionMetadataSpecificationKey_Identifier as String: identifier,
+                kCMMetadataFormatDescriptionMetadataSpecificationKey_DataType as String: "com.apple.metadata.datatype.int8",
+            ]]
+            var format: CMFormatDescription?
+            CMMetadataFormatDescriptionCreateWithMetadataSpecifications(
+                allocator: kCFAllocatorDefault, metadataType: kCMMetadataFormatType_Boxed,
+                metadataSpecifications: specifications as CFArray, formatDescriptionOut: &format
+            )
+            let metadataInput = AVAssetWriterInput(mediaType: .metadata, outputSettings: nil, sourceFormatHint: format)
+            writer.add(metadataInput)
+            stillMetadata = (metadataInput, AVAssetWriterInputMetadataAdaptor(assetWriterInput: metadataInput))
+        }
+
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
+
+        if let stillImageTime, let stillMetadata {
+            let item = AVMutableMetadataItem()
+            item.identifier = AVMetadataIdentifier(rawValue: "mdta/com.apple.quicktime.still-image-time")
+            item.dataType = "com.apple.metadata.datatype.int8"
+            item.value = NSNumber(value: -1) // what real files carry; the time is the sample's, not this value
+            stillMetadata.adaptor.append(AVTimedMetadataGroup(
+                items: [item],
+                timeRange: CMTimeRange(start: CMTime(seconds: stillImageTime, preferredTimescale: 600), duration: CMTime(value: 1, timescale: 600))
+            ))
+            stillMetadata.input.markAsFinished()
+        }
 
         let context = CIContext()
         let queue = DispatchQueue(label: "test-clip-writer.\(UUID())")
@@ -231,13 +324,16 @@ final class ImportTests: XCTestCase {
             let stillDate = Self.testClipCreationDate.addingTimeInterval(stillOffsetSeconds)
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyy:MM:dd HH:mm:ss"
-            formatter.timeZone = TimeZone(identifier: "UTC")
+            // Local wall-clock time in the given offset, as a real camera writes it.
+            formatter.timeZone = TimeZone(secondsFromGMT: Int(LivePhotoImporter.offsetSeconds(exifUTCOffset)))
             let wholeSecondDate = Date(timeIntervalSince1970: stillDate.timeIntervalSince1970.rounded(.down))
             let subseconds = stillDate.timeIntervalSince1970 - wholeSecondDate.timeIntervalSince1970
-            properties[kCGImagePropertyExifDictionary] = [
+            var exif: [CFString: Any] = [
                 kCGImagePropertyExifDateTimeOriginal: formatter.string(from: wholeSecondDate),
                 kCGImagePropertyExifSubsecTimeOriginal: String(Int((subseconds * 1000).rounded())),
-            ] as [CFString: Any]
+            ]
+            if let exifUTCOffset { exif[kCGImagePropertyExifOffsetTimeOriginal] = exifUTCOffset }
+            properties[kCGImagePropertyExifDictionary] = exif
         }
         CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
         CGImageDestinationFinalize(destination)
