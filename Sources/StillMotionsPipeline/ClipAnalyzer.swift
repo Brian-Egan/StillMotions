@@ -58,7 +58,7 @@ public enum ClipAnalyzer {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw ClipImportError.noVideoTrack(movieURL)
         }
-        let natural = try await track.load(.naturalSize)
+        let natural = try await TrackOrientation.load(from: track).uprightSize(try await track.load(.naturalSize))
         let frameRate = Double(try await track.load(.nominalFrameRate))
         let size = CGSize(width: natural.width.rounded(), height: natural.height.rounded())
         let scale = min(1, Double(estimationLongEdge) / Double(max(size.width, size.height)))
