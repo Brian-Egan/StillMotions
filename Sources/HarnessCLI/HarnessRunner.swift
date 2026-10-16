@@ -168,13 +168,16 @@ enum HarnessRunner {
         if options.updateBaseline {
             let url = options.baseline ?? URL(fileURLWithPath: "harness/baseline.json")
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try Baseline(clips: metrics, estimator: options.estimator, solver: options.solver).write(to: url)
+            try Baseline(clips: metrics, estimator: options.estimator, solver: options.solver, residualMeter: ResidualMotionMeter().identifier).write(to: url)
             print("wrote baseline \(url.path)")
         } else if let baselineURL = options.baseline {
             guard FileManager.default.fileExists(atPath: baselineURL.path) else {
                 throw SpikeError("baseline \(baselineURL.path) does not exist (create it with --update-baseline)")
             }
-            problems = RegressionCheck.compare(baseline: try Baseline.load(from: baselineURL), current: metrics)
+            problems = RegressionCheck.compare(
+                baseline: try Baseline.load(from: baselineURL), current: metrics,
+                residualMeter: flowAvailable ? ResidualMotionMeter().identifier : nil
+            )
         }
 
         let summary = Summary(

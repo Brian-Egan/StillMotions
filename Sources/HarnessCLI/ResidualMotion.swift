@@ -66,6 +66,19 @@ struct ResidualMotionMeter {
     /// here with a shift of this fraction of the width, small because residuals are small.
     var calibrationShiftFraction = 0.004
 
+    /// Names how this meter measures, recorded in the baseline so a mismatch is caught (#72).
+    var identifier: String {
+        let level: String
+        switch accuracy {
+        case .low: level = "low"
+        case .medium: level = "medium"
+        case .high: level = "high"
+        case .veryHigh: level = "veryHigh"
+        @unknown default: level = "unknown"
+        }
+        return "flow-\(level)"
+    }
+
     struct Result {
         let meanPixels: Double
         let pairs: Int
