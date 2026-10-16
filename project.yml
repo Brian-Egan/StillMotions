@@ -110,11 +110,31 @@ targets:
         com.apple.security.application-groups:
           - group.com.began.Still-Motions
 
+  # UI tests for the app, run on a simulator by hand (CI never builds the app, see
+  # docs/ARCHITECTURE.md §9). They need a photo library with Live Photos in it and photo access
+  # already granted; see the header of App/StillMotionsUITests/GalleryUITests.swift.
+  StillMotionsUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: App/StillMotionsUITests
+    dependencies:
+      - target: StillMotions
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.began.Still-Motions.UITests
+        GENERATE_INFOPLIST_FILE: YES
+
 schemes:
   StillMotions:
     build:
       targets:
         StillMotions: all
+        # Built only when testing, so a plain `xcodebuild build` is unchanged.
+        StillMotionsUITests: [test]
+    test:
+      targets:
+        - StillMotionsUITests
     run:
       config: Debug
     archive:
