@@ -171,16 +171,23 @@ final class VideoEncoderTests: XCTestCase {
         }
     }
 
+    /// An endless supply of one frame. A class marked `Sendable` so the task below captures
+    /// nothing but this: the compiler CI uses (Swift 6.3) rejects the closure-captures-a-`var`
+    /// form that a newer one accepts.
+    final class EndlessFrames: @unchecked Sendable {
+        private let frame = VideoEncoderTests.solidBuffer(width: 128, height: 128, shade: 77)
+        private var produced = 0
+        func next() -> CVPixelBuffer? {
+            produced += 1
+            return produced < 100_000 ? frame : nil
+        }
+    }
+
     func testCancellationStopsTheEncodeAndRemovesThePartialFile() async throws {
         let url = tempURL()
+        let source = EndlessFrames()
         let task = Task {
-            // Built inside the task so nothing non-Sendable is captured across it.
-            let frame = Self.solidBuffer(width: 128, height: 128, shade: 77)
-            var produced = 0
-            return try await VideoEncoder().encode(
-                nextFrame: { produced += 1; return produced < 100_000 ? frame : nil },
-                frameRate: 30, mode: .once, to: url
-            )
+            try await VideoEncoder().encode(nextFrame: { source.next() }, frameRate: 30, mode: .once, to: url)
         }
         try await Task.sleep(for: .milliseconds(150))
         task.cancel()
