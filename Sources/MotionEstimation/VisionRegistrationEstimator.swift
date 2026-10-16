@@ -13,7 +13,7 @@ public struct VisionRegistrationEstimator: MotionEstimator {
     /// treated as a registration failure rather than passed downstream as nonsense — a
     /// tracker that has locked onto a moving subject or lost the frame entirely tends to
     /// produce wild rotation, scale, or translation, not a slightly-wrong small one.
-    public struct PlausibilityBounds {
+    public struct PlausibilityBounds: Sendable {
         public var maxRotation: Double
         public var scaleRange: ClosedRange<Double>
         public var maxTranslationFraction: Double

@@ -3,6 +3,7 @@
 - Status: **Accepted** — resolved by the phase-1 spike (#10); see "Outcome of the spike"
 - Date: 2026-09-24
 - Relates to: PROJECT_BRIEF.md §4.2 step 2, §6.1; docs/PRD.md "Stabilization quality"
+- Amended by: [0008](0008-chained-motion-estimation.md): how frames are registered (chained, not each to the reference) changed after real footage; the choice of estimator below stands
 
 ## Context
 

@@ -7,7 +7,7 @@ import StillMotionsPipeline
 /// through the shipping pipeline, write the outputs and metrics, and compare with the baseline.
 ///
 ///     stillmotions-harness --fixtures <dir> --out <dir> [--baseline harness/baseline.json]
-///                          [--estimator registration|flow] [--solver warp|l1] [--update-baseline]
+///                          [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline]
 ///
 /// `scripts/verify.sh` calls exactly this interface.
 enum HarnessRunner {
@@ -22,7 +22,7 @@ enum HarnessRunner {
 
     static let usage = """
         usage: stillmotions-harness --fixtures <dir> --out <dir> [--baseline <file>]
-                                    [--estimator registration|flow] [--solver warp|l1] [--update-baseline]
+                                    [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline]
         """
 
     static func parse(_ arguments: [String]) throws -> Options {
@@ -48,8 +48,8 @@ enum HarnessRunner {
         }
         guard let fixtures else { throw SpikeError("--fixtures is required\n\(usage)") }
         guard let out else { throw SpikeError("--out is required\n\(usage)") }
-        guard ["registration", "flow"].contains(estimator) else {
-            throw SpikeError("--estimator must be 'registration' or 'flow', not '\(estimator)'")
+        guard ["registration", "registration-direct", "flow"].contains(estimator) else {
+            throw SpikeError("--estimator must be 'registration', 'registration-direct' or 'flow', not '\(estimator)'")
         }
         guard ["warp", "l1"].contains(solver) else { throw SpikeError("--solver must be 'warp' or 'l1', not '\(solver)'") }
         return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update)
@@ -229,7 +229,10 @@ enum HarnessRunner {
 
         let referenceIndex = try await clip.referenceIndex()
         let analysis = try await timed("estimate") {
-            try await ClipAnalyzer.estimateMotion(movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator, renderer: renderer)
+            try await ClipAnalyzer.estimateMotion(
+                movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator,
+                strategy: options.estimator == "registration" ? .chained : .reference, renderer: renderer
+            )
         }
         let path = try await timed("solve") {
             try WarpToReferenceSolver().solve(motion: analysis.motion, frameSize: analysis.size)

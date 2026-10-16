@@ -94,6 +94,7 @@ final class HarnessTests: XCTestCase {
         let ok = try HarnessRunner.parse(["--fixtures", "f", "--out", "o", "--baseline", "b", "--estimator", "flow", "--solver", "warp", "--update-baseline"])
         XCTAssertEqual(ok.estimator, "flow")
         XCTAssertTrue(ok.updateBaseline)
+        XCTAssertEqual(try HarnessRunner.parse(["--fixtures", "f", "--out", "o", "--estimator", "registration-direct"]).estimator, "registration-direct")
         XCTAssertThrowsError(try HarnessRunner.parse(["--fixtures", "f", "--out", "o", "--only", "x"]))
         XCTAssertThrowsError(try HarnessRunner.parse(["--out", "o"]))
         XCTAssertThrowsError(try HarnessRunner.parse(["--fixtures", "f", "--out", "o", "--estimator", "magic"]))
