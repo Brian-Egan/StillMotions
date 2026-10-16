@@ -108,6 +108,36 @@ public final class StabilizedRenderer: @unchecked Sendable {
         }
     }
 
+    /// The pull-style counterpart of `renderStream`, for consumers (encoders) that ask for the
+    /// next frame when they are ready: each call renders the next source frame into a pooled
+    /// buffer and returns it, and returns `nil` when `frames` runs out.
+    public func makeProducer<Frames: Sequence>(
+        frames: Frames,
+        corrections: [simd_float3x3],
+        crop: CGRect,
+        outputSize: CGSize
+    ) throws -> () throws -> CVPixelBuffer? where Frames.Element == CVPixelBuffer {
+        let width = Int(outputSize.width.rounded()), height = Int(outputSize.height.rounded())
+        guard width >= 1, height >= 1 else { throw RenderingError.invalidOutputSize(outputSize) }
+        guard crop.width > 0, crop.height > 0 else { throw RenderingError.invalidCrop(crop) }
+        let pool = try Self.makePool(width: width, height: height)
+        let state = ProducerState(frames.makeIterator())
+        return { [self] in
+            guard let frame = state.iterator.next() else { return nil }
+            guard state.index < corrections.count else {
+                throw RenderingError.countMismatch(frames: state.index + 1, corrections: corrections.count)
+            }
+            var pooled: CVPixelBuffer?
+            CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pooled)
+            guard let destination = pooled else { throw RenderingError.bufferAllocationFailed(width: width, height: height) }
+            defer { state.index += 1 }
+            return try render(
+                frame: frame, correction: corrections[state.index], crop: crop,
+                outputSize: outputSize, into: destination
+            )
+        }
+    }
+
     // MARK: - Helpers
 
     static func makeBuffer(width: Int, height: Int) throws -> CVPixelBuffer {
@@ -160,4 +190,11 @@ extension simd_float3x3 {
             tx: CGFloat(columns.2.x), ty: CGFloat(columns.2.y)
         )
     }
+}
+
+/// Mutable iteration state for `makeProducer`'s closure.
+private final class ProducerState<Iterator: IteratorProtocol> {
+    var iterator: Iterator
+    var index = 0
+    init(_ iterator: Iterator) { self.iterator = iterator }
 }
