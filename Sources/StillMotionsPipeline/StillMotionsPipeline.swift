@@ -7,6 +7,7 @@
 @_exported import PipelineCore
 @_exported import Import
 @_exported import MotionEstimation
+@_exported import CameraPath
 
 // Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //
