@@ -9,6 +9,7 @@
 @_exported import MotionEstimation
 @_exported import CameraPath
 @_exported import LoopSelection
+@_exported import Rendering
 
 // Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //
