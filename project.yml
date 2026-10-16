@@ -7,11 +7,10 @@ name: StillMotions
 
 # Bundle identifiers deliberately use `Still-Motions`, not `StillMotions`.
 #
-# The project is developed on a FREE Apple personal team. An explicit App ID registered by a
-# personal team is claimed permanently and cannot be self-released, so if the project later moves
-# to a paid team, `com.began.StillMotions` would already be taken by the personal team and would
-# need an Apple Developer Support ticket to free. Using a hyphenated identifier now keeps the
-# unhyphenated one available for that move. See "Upgrading to a paid account" in docs/RUNBOOK.md.
+# The hyphen is historical: the project began on a free personal team, which claims explicit
+# App IDs permanently. The developer now has a paid membership, but the identifiers are registered
+# and changing them makes iOS treat the build as a different app. See "Paid membership notes" in
+# docs/RUNBOOK.md.
 
 options:
   bundleIdPrefix: com.began
@@ -26,8 +25,8 @@ settings:
   base:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
-    # Set by the signing issue. On a free personal team this is your personal team ID and
-    # Xcode registers the App IDs for you; there is no developer-portal step.
+    # Set by the signing issue. This is the developer's paid team ID; Xcode registers the
+    # App IDs for you under automatic signing.
     DEVELOPMENT_TEAM: "G42X3PN636"
     CODE_SIGN_STYLE: Automatic
     ENABLE_USER_SCRIPT_SANDBOXING: YES

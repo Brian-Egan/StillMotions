@@ -349,7 +349,7 @@ agent's disk but was never committed, in seconds rather than after a CI round tr
 
 Two limits worth stating, since nothing else covers them:
 
-- **CI never builds the iOS app.** Signing needs a keychain and a free-personal-team provisioning
+- **CI never builds the iOS app.** Signing needs a keychain and a development provisioning
   profile, which is not reproducible on a hosted runner. App correctness rests on the `human`
   on-device issues (#26, #30, #35, #38).
 - **CI guards correctness, not quality.** Personal fixtures are gitignored, so CI only ever sees

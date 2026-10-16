@@ -160,15 +160,16 @@ issue comment is not documentation; the next agent reads the repo, not the issue
 **Always build the app for the simulator: `-destination 'generic/platform=iOS Simulator'`.** Never
 `generic/platform=iOS`, and never a connected device.
 
-Three reasons, all of which have bitten this project:
+Three reasons, which have bitten this project:
 
 1. **The phone is usually not attached.** The developer runs sessions overnight with the phone
    elsewhere. An issue that needs hardware to close is an issue that stalls until morning.
 2. **A device build needs a provisioning profile and a codesign pass.** Codesign touching the
    private key can raise a modal keychain prompt, which hangs an unattended run silently until
    someone clicks it.
-3. **Free-team profiles expire every 7 days.** A device build would start failing weekly for a
-   reason that has nothing to do with the code.
+3. **Signing state is machine-specific.** The developer has a paid Apple Developer membership, so
+   profiles last a year, but a device build still depends on the phone being registered and the
+   keychain being unlocked. It can fail for reasons that have nothing to do with the code.
 
 A simulator build needs none of those. It still compiles both targets, embeds the appex, and
 catches every compile and link error that matters.

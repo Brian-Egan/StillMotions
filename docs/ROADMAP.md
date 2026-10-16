@@ -90,7 +90,7 @@ cannot launch, that is worth knowing before three more milestones are built on t
 
 More generally, **no agent issue requires hardware.** App builds target the simulator, which needs
 no provisioning profile and no codesign pass, so an unattended run cannot stall on a keychain
-prompt or a 7-day profile expiry. Every device-dependent check lives in #44, #26, #30, #35 or #38.
+prompt or a signing failure. Every device-dependent check lives in #44, #26, #30, #35 or #38.
 See "The agent never needs a physical device" in CLAUDE.md.
 
 Issue #2 (self-hosted runner) was **closed as not planned**. CI runs on GitHub-hosted macOS

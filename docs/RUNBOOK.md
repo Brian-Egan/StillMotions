@@ -15,8 +15,8 @@ install and nothing on your Mac to keep running.
 - A Mac on Apple silicon, with admin rights
 - Xcode 27 from the App Store
 - An iPhone 14 Pro or newer, and a cable
-- An Apple ID. **A free one is enough** — no $99 Apple Developer Program membership needed. See
-  "Free account limits" below for what that costs you.
+- An Apple ID enrolled in the **paid Apple Developer Program** ($99/year). The developer has
+  this. See "Paid membership notes" below for what it gives you.
 - 30 to 50 of your own Live Photos
 - Claude Code, and `gh` already authenticated
 
@@ -124,8 +124,10 @@ first in every verification pass to stop that happening.
 
 ### 4. Set up signing
 
-On a free personal team there is **no developer-portal step**. Xcode registers the App IDs and
-the App Group for you when it signs. You only need to tell it which team to use.
+With automatic signing there is **no required developer-portal step**. Xcode registers the App IDs
+and the App Group for you when it signs. You only need to tell it which team to use. The portal
+(developer.apple.com/account) is still available if you need to inspect or remove devices and
+identifiers.
 
 The identifiers, already in `project.yml`:
 
@@ -133,12 +135,14 @@ The identifiers, already in `project.yml`:
 - Extension: `com.began.Still-Motions.Share`
 - App Group: `group.com.began.Still-Motions`
 
-The hyphen is deliberate and load-bearing. An explicit App ID claimed by a personal team cannot
-be released without an Apple Developer Support ticket, so `com.began.StillMotions` is being kept
-free for a future paid team. Do not "tidy" these.
+The hyphen is historical: the project began on a free personal team, which claims explicit App IDs
+permanently. The identifiers are now registered, and changing them makes iOS treat the build as a
+different app, so leave them as they are. Do not "tidy" these.
 
-Find your Team ID under Xcode, Settings, Accounts: select your Apple ID, then your personal team.
-It is the ten-character string, or click Manage Certificates if it is not shown.
+Find your Team ID under Xcode, Settings, Accounts: select your Apple ID, then your paid team (it is
+listed by your name, without "(Personal Team)"). It is the ten-character string, or click Manage
+Certificates if it is not shown. If Xcode shows "(Personal Team)", you are signed in with the wrong
+Apple ID or the membership is not active yet.
 
 ```bash
 # edit project.yml, set DEVELOPMENT_TEAM under settings.base
@@ -147,9 +151,9 @@ open StillMotions.xcodeproj
 ```
 
 In Xcode, select each of the two targets in turn and open Signing & Capabilities. Automatically
-manage signing should be on, your personal team selected, and App Groups should list
-`group.com.began.Still-Motions`. If App Groups shows an error mentioning personal teams, tell me —
-that would contradict what Apple support currently says and would change the share extension design.
+manage signing should be on, your paid team selected, and App Groups should list
+`group.com.began.Still-Motions`. If App Groups shows an error, tell me — that would change the
+share extension design.
 
 Xcode will probably warn that you have no registered devices. **Ignore it for now.** A development
 profile embeds a device list, so that warning is expected until you plug the phone in, and none of
@@ -164,44 +168,21 @@ That is the whole of step 4. **No phone required.** Registering the device, inst
 the certificate, and confirming App Groups against a real profile are issue #44, which you can do
 whenever the phone is to hand — nothing the agent does is waiting on it.
 
-### Free account limits
+### Paid membership notes
 
-What the free tier costs you, from Apple's membership comparison:
+The project assumes a paid Apple Developer Program membership. What that means in practice:
 
-| | Free personal team | Paid, $99/year |
-| --- | --- | --- |
-| Provisioning profile validity | **7 days** | 1 year |
-| App IDs | 10, each expiring after 7 days | unlimited |
-| Devices | 3, expiring after 7 days | 100 per type |
-| Apps per device | 3 | unlimited |
-| TestFlight | no | yes |
-
-Two of these will actually affect you.
-
-**The app stops launching every 7 days.** It stays on the home screen, then simply refuses to
-open. There is no warning and nothing on the phone can extend it. Rebuild from Xcode and you get
-a fresh 7 days. This is the main reason to eventually pay.
-
-**Do not churn the bundle identifiers.** The app and the extension consume one App ID each, and
-adding App Groups forces explicit rather than wildcard IDs. That gives you roughly five clean
-identifier changes per week before `'10' App ID limit in '7' days`. Free accounts cannot see the
-portal's Identifiers list to delete them, so the only remedy is waiting out the week.
-
-### Upgrading to a paid account later
-
-When the weekly rebuild gets old, enrol in the Apple Developer Program and switch the
-identifiers to the unhyphenated ones being held in reserve:
-
-1. In `project.yml`, change `DEVELOPMENT_TEAM` to the new team ID and replace all three
-   identifiers: `com.began.StillMotions`, `com.began.StillMotions.Share`,
-   `group.com.began.StillMotions`.
-2. `xcodegen generate`, then in Xcode confirm both targets sign against the new team.
-3. Register the two App IDs and the App Group in the developer portal, since a paid team manages
-   identifiers there rather than implicitly.
-4. Rebuild to the device. iOS treats this as a **different app**, so the old one stays installed
-   until you delete it and its settings do not carry over. Nothing else is lost; there is no
-   persistent data beyond preferences.
-5. TestFlight becomes available at this point if you want it.
+- **Profiles last one year**, not 7 days. The app does not stop launching weekly. Xcode renews
+  managed profiles when you build; if the app ever refuses to open, rebuild from Xcode.
+- **Devices are managed in the portal**, up to 100 per type per year. If Xcode reports "maximum
+  number of registered devices", remove stale devices under Certificates, Identifiers & Profiles,
+  Devices. Removing a device frees a slot only at the next annual membership renewal, so register
+  deliberately.
+- **App IDs are unlimited**, so changing identifiers is no longer rationed. It still makes iOS
+  treat the build as a different app, so avoid it without a reason.
+- **TestFlight is available** if you want it. It is out of scope for now (PRD §0).
+- **The membership must be active for the team to appear as a paid team.** Right after enrolling
+  or renewing, Xcode may keep labelling the team "(Personal Team)" until Apple finishes processing.
 
 ### Before you walk away
 
@@ -343,7 +324,7 @@ once, seconds instead of a CI round trip.
 CI is a real gate, but it does not cover everything:
 
 - **The app is never built**, only the pipeline package. Signing needs a keychain and a
-  free-personal-team provisioning profile, which a hosted runner cannot reproduce. Whether the iOS
+  development provisioning profile, which a hosted runner cannot reproduce. Whether the iOS
   app compiles and runs is established by the on-device checks at the end of each app milestone
   (#26, #30, #35, #38).
 - **Quality is not gated.** The harness compares against a committed baseline for the synthetic
