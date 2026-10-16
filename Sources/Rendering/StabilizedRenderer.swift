@@ -138,7 +138,25 @@ public final class StabilizedRenderer: @unchecked Sendable {
         }
     }
 
+    /// `weight` of `second` mixed into `first` (0 is all `first`, 1 is all `second`), at their
+    /// shared size. Used for the loop crossfade.
+    public func blend(_ first: CVPixelBuffer, _ second: CVPixelBuffer, weight: Float) throws -> CVPixelBuffer {
+        let width = CVPixelBufferGetWidth(first), height = CVPixelBufferGetHeight(first)
+        let mixed = CIImage(cvPixelBuffer: first).applyingFilter("CIDissolveTransition", parameters: [
+            kCIInputTargetImageKey: CIImage(cvPixelBuffer: second),
+            kCIInputTimeKey: weight,
+        ])
+        let target = try Self.makeBuffer(width: width, height: height)
+        context.render(mixed, to: target, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: nil)
+        return target
+    }
+
     // MARK: - Helpers
+
+    /// A plain BGRA buffer a caller can render into repeatedly (the renderer's `into:`).
+    public static func makeScratchBuffer(width: Int, height: Int) throws -> CVPixelBuffer {
+        try makeBuffer(width: width, height: height)
+    }
 
     static func makeBuffer(width: Int, height: Int) throws -> CVPixelBuffer {
         var out: CVPixelBuffer?

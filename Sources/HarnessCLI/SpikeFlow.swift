@@ -13,6 +13,8 @@ struct SpikeFlowEstimator {
         let transform: simd_float3x3
         let inlierRatio: Double
         let sampleCount: Int
+        /// Mean distance between each RANSAC inlier's two positions: how far the background moved.
+        let inlierMeanDisplacement: Double
         let requestMs: Double
         let sampleMs: Double
         let fitMs: Double
@@ -85,6 +87,7 @@ struct SpikeFlowEstimator {
             transform: fit.transform,
             inlierRatio: fit.inlierRatio,
             sampleCount: pairs.count,
+            inlierMeanDisplacement: fit.inlierIndices.map { simd_distance(pairs[$0].from, pairs[$0].to) }.reduce(0, +) / Double(max(1, fit.inlierIndices.count)),
             requestMs: requestMs,
             sampleMs: sampleMs,
             fitMs: fitMs
@@ -103,11 +106,12 @@ struct SpikeFlowEstimator {
     static func calibrate(
         reference: CVPixelBuffer,
         accuracy: TrackOpticalFlowRequest.ComputationAccuracy,
-        context: CIContext
+        context: CIContext,
+        shiftFraction: Double = 0.01
     ) async throws -> (scale: Double, milliseconds: Double) {
         let width = CVPixelBufferGetWidth(reference)
         let height = CVPixelBufferGetHeight(reference)
-        let shift = Double(width) * 0.01
+        let shift = Double(width) * shiftFraction
         let extent = CGRect(x: 0, y: 0, width: width, height: height)
         let moved = CIImage(cvPixelBuffer: reference)
             .clampedToExtent()
