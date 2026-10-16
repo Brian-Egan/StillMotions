@@ -1,19 +1,16 @@
 import SwiftUI
 
-// Scaffolding only. The gallery, editor, and export UI arrive in phases 3 to 5.
 @main
 struct StillMotionsApp: App {
+    // Created once and shared through the environment, so every screen sees the same state.
+    @State private var settings = AppSettings()
+    @State private var photoAccess = PhotoLibraryAccess()
+
     var body: some Scene {
         WindowGroup {
-            PlaceholderView()
+            RootView()
+                .environment(settings)
+                .environment(photoAccess)
         }
-    }
-}
-
-private struct PlaceholderView: View {
-    var body: some View {
-        // Replaced by the gallery in the phase-3 app shell issue (PRD R-1).
-        Text("StillMotions")
-            .font(.largeTitle)
     }
 }
