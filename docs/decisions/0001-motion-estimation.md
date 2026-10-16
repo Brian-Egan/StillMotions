@@ -191,6 +191,17 @@ Findings that changed the design:
 5. **Memory is not a concern here.** Peak `phys_footprint` growth is 9 MB at 720 and 11 MB at
    native, against the 200 MB flag. On a Mac, so a relative signal only.
 
+6. **A baseline must record how it measured (#72).** Changing the meter's accuracy level in #11
+   moved every residual reading by a deterministic 0.57 to 0.74 times on the synthetic clips
+   (median 0.118 px at `.medium`, 0.070 px at `.veryHigh`), which looked like instability between
+   sessions until the setting was found. Verified by re-running the same code with only that one
+   line changed: `.medium` reproduces the old baseline to three digits. `harness/baseline.json`
+   now records the meter (`residualMeter`), the regression check fails loudly when it differs from
+   the run's meter instead of comparing incomparable numbers, and the baseline was rewritten at
+   `.veryHigh`. Crop retention and loop seam are unchanged. Any residual figure recorded before
+   this (including #18's personal-fixture residual column) was measured at `.medium` and reads
+   about 20 to 40% high at sub-pixel levels.
+
 The absolute-accuracy criteria #11 originally carried (at or better than registration on every
 fixture, and lower error on `moving-subject`) were replaced before implementation, on the #10
 measurements: see the comments on #11.

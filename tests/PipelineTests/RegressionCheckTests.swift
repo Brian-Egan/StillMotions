@@ -93,6 +93,48 @@ final class RegressionCheckTests: XCTestCase {
 
     // MARK: - Other behaviour
 
+    // MARK: - Residual meter identity (#72)
+
+    func testAMatchingMeterComparesResidualsAsUsual() {
+        let withMeter = Baseline(clips: Self.good, estimator: "registration", solver: "warp", residualMeter: "flow-veryHigh")
+        XCTAssertEqual(RegressionCheck.compare(baseline: withMeter, current: Self.good, residualMeter: "flow-veryHigh"), [])
+        var worse = Self.good
+        for key in worse.keys { worse[key]!.residualMotion! *= 1.2 }
+        XCTAssertEqual(RegressionCheck.compare(baseline: withMeter, current: worse, residualMeter: "flow-veryHigh").count, 1)
+    }
+
+    func testADifferentMeterFailsLoudlyInsteadOfComparingIncomparableNumbers() {
+        // A baseline written at .medium reads about 40% higher than a run at .veryHigh. Comparing
+        // them would let a real regression hide inside that gap, so the check refuses to.
+        let atMedium = Baseline(clips: Self.good, estimator: "registration", solver: "warp", residualMeter: "flow-medium")
+        var lower = Self.good
+        for key in lower.keys { lower[key]!.residualMotion! *= 0.6 }
+        let problems = RegressionCheck.compare(baseline: atMedium, current: lower, residualMeter: "flow-veryHigh")
+        XCTAssertEqual(problems.count, 1, "\(problems)")
+        XCTAssertTrue(problems[0].contains("flow-medium") && problems[0].contains("flow-veryHigh") && problems[0].contains("--update-baseline"), "\(problems)")
+    }
+
+    func testABaselineThatNeverRecordedItsMeterIsReportedAsSuch() {
+        let problems = RegressionCheck.compare(baseline: baseline, current: Self.good, residualMeter: "flow-veryHigh")
+        XCTAssertEqual(problems.count, 1)
+        XCTAssertTrue(problems[0].contains("unrecorded meter"), "\(problems)")
+    }
+
+    func testAMeterMismatchDoesNotHideACropRegression() {
+        let atMedium = Baseline(clips: Self.good, estimator: "registration", solver: "warp", residualMeter: "flow-medium")
+        var worse = Self.good
+        for key in worse.keys { worse[key]!.cropRetention -= 0.03 }
+        let problems = RegressionCheck.compare(baseline: atMedium, current: worse, residualMeter: "flow-veryHigh")
+        XCTAssertTrue(problems.contains { $0.contains("crop retention") }, "\(problems)")
+        XCTAssertTrue(problems.contains { $0.contains("not comparable") }, "\(problems)")
+    }
+
+    func testRunsWithoutFlowSkipTheMeterCheck() {
+        // On a machine where flow does not run, no residuals are measured and none are compared.
+        let withMeter = Baseline(clips: Self.good, estimator: "registration", solver: "warp", residualMeter: "flow-veryHigh")
+        XCTAssertEqual(RegressionCheck.compare(baseline: withMeter, current: Self.good, residualMeter: nil), [])
+    }
+
     func testAMissingClipFails() {
         var current = Self.good
         current["d"] = nil

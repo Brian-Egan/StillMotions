@@ -22,11 +22,17 @@ public struct Baseline: Codable, Equatable {
     public var clips: [String: Clip]
     public var estimator: String
     public var solver: String
+    /// Which residual-motion meter produced the residual values (for example `flow-veryHigh`).
+    /// Residual readings depend on the flow accuracy level (the zero-motion noise floor at 720 px is
+    /// about 0.28 px at `.medium` and 0.16 px at `.veryHigh`), so a baseline is only comparable to a
+    /// run that measures the same way. Nil in a baseline written before this was recorded (#72).
+    public var residualMeter: String?
 
-    public init(clips: [String: ClipMetrics], estimator: String, solver: String) {
+    public init(clips: [String: ClipMetrics], estimator: String, solver: String, residualMeter: String? = nil) {
         self.clips = clips.mapValues(Clip.init)
         self.estimator = estimator
         self.solver = solver
+        self.residualMeter = residualMeter
     }
 
     public static func load(from url: URL) throws -> Baseline {
@@ -57,8 +63,21 @@ public enum RegressionCheck {
     static let epsilon = 1e-9
 
     /// One human-readable line per violated condition; empty means no regression.
-    public static func compare(baseline: Baseline, current: [String: ClipMetrics]) -> [String] {
+    ///
+    /// `residualMeter` names how this run measured residual motion. When it differs from the one
+    /// the baseline was written with (or the baseline does not say), the residual medians are not
+    /// comparable, so this reports that plainly instead of comparing them, and the rest of the
+    /// check still runs.
+    public static func compare(baseline: Baseline, current: [String: ClipMetrics], residualMeter: String? = nil) -> [String] {
         var problems: [String] = []
+        var residualsComparable = true
+        if let residualMeter, baseline.residualMeter != residualMeter {
+            residualsComparable = false
+            problems.append(
+                "the baseline measured residual motion with '\(baseline.residualMeter ?? "an unrecorded meter")' but this run uses '\(residualMeter)': "
+                    + "residual values are not comparable. Rewrite the baseline with --update-baseline (#72)"
+            )
+        }
 
         let missing = baseline.clips.keys.filter { current[$0] == nil }.sorted()
         for name in missing {
@@ -79,7 +98,7 @@ public enum RegressionCheck {
 
         let baselineResidual = common.compactMap { baseline.clips[$0]!.residualMotion }
         let currentResidual = common.compactMap { current[$0]!.residualMotion }
-        if !baselineResidual.isEmpty, !currentResidual.isEmpty {
+        if residualsComparable, !baselineResidual.isEmpty, !currentResidual.isEmpty {
             let before = median(baselineResidual), after = median(currentResidual)
             if after > before * (1 + allowedResidualMotionRise) + epsilon {
                 problems.append(String(
