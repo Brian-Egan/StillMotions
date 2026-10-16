@@ -84,10 +84,15 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.began.Still-Motions.Share
-        INFOPLIST_KEY_CFBundleDisplayName: StillMotions
     info:
       path: App/StillMotionsShare/Info.plist
       properties:
+        # Set here, not via INFOPLIST_KEY_*: this target uses a hand-managed plist, so the
+        # build-setting form is ignored. A device install rejects the appex without it (#44).
+        CFBundleDisplayName: StillMotions
+        # Must match the containing app or Xcode warns and the installer may reject it.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: ShareViewController
