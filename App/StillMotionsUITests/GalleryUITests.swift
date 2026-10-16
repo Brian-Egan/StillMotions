@@ -88,4 +88,20 @@ final class GalleryUITests: XCTestCase {
         XCTAssertEqual(counts.started, counts.finished + counts.cancelled + counts.active, "a request was lost: \(counts)")
         XCTAssertEqual(counts.active, 0, "requests are still running at rest: \(counts)")
     }
+
+    func testTheEditorExtractsTheLivePhotoFilesAndCleansUp() throws {
+        launch()
+        try requireEnoughPhotos()
+        cells.element(boundBy: 0).tap()
+
+        // PhotoKit hands over the still and the video, the pipeline's importer reads them, and
+        // the temporary folder is gone afterwards.
+        let result = app.staticTexts["stagingResult"]
+        XCTAssertTrue(result.waitForExistence(timeout: 30), "the editor never reported on the extracted files")
+        let text = result.label
+        print("STAGING RESULT: \(text)")
+        XCTAssertTrue(text.contains("Staged the original pair"), text)
+        XCTAssertTrue(text.contains("frames"), text)
+        XCTAssertTrue(text.contains("Folders left behind: 0"), "extracted files were not cleaned up: \(text)")
+    }
 }
