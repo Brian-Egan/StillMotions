@@ -60,9 +60,10 @@ Generated structure:
 
 Both embed the local `StillMotionsPipeline` SwiftPM package. Both carry App Group
 `group.com.began.Still-Motions`. Deployment target iOS 27.0. The hyphenated identifiers are
-deliberate: development runs on a free Apple personal team, which claims explicit App IDs
-permanently, so the unhyphenated names are held in reserve for a future paid team. See
-"Upgrading to a paid account later" in docs/RUNBOOK.md.
+historical: the project began on a free personal team, which claims explicit App IDs permanently,
+so the unhyphenated names were held back for a paid team. The developer has since joined the paid
+program and kept the hyphenated identifiers, since changing them makes iOS treat the build as a
+different app. See "Paid membership notes" in docs/RUNBOOK.md.
 
 ## Consequences
 
