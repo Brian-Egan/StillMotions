@@ -165,8 +165,11 @@ final class LivePhotoStagingTests: XCTestCase {
         // Captures only Sendable values (not `self`), which Swift 6.3 on CI requires.
         let stager = self.stager!
         let stillWritten = Signal()
-        let task = Task {
-            try await stager.stage(resources: Self.originalPair) { resource, url, _ in
+        let pair = Self.originalPair // not `Self` inside the closure: Swift 6.3 cannot check that capture
+        // The task returns Void: the staged result is not needed, and returning a non-Sendable
+        // value out of a Task trips Swift 6.3's region checker.
+        let task = Task<Void, Error> {
+            _ = try await stager.stage(resources: pair) { resource, url, _ in
                 try Data("bytes".utf8).write(to: url)
                 if resource.kind == .photo { stillWritten.set() }
                 try await Task.sleep(for: .seconds(30)) // the video "download" is slow
@@ -176,7 +179,7 @@ final class LivePhotoStagingTests: XCTestCase {
         XCTAssertTrue(stillWritten.isSet, "the still was never written")
         task.cancel()
         do {
-            _ = try await task.value
+            try await task.value
             XCTFail("expected cancellation")
         } catch is CancellationError {
             // expected
