@@ -140,7 +140,7 @@ final class MotionEstimationTests: XCTestCase {
 
         print("\n=== VisionRegistrationEstimator timing (macOS build machine, NOT the iPhone 14 Pro reference device) ===")
         print("native (1920x1080): \(String(format: "%.2f", nativeMs)) ms/frame")
-        print("720p   (1280x720):  \(String(format: "%.2f", scaledMs)) ms/frame")
+        print("720 long edge (720x405): \(String(format: "%.2f", scaledMs)) ms/frame")
     }
 
     // MARK: - Helpers
