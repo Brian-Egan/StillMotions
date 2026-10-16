@@ -148,6 +148,101 @@ final class ImportTests: XCTestCase {
         }
     }
 
+    // MARK: - Upright decode (#60)
+
+    /// A track's rotation, with where the stored top-left corner ends up once turned upright.
+    /// Stored frames are 64x32; `.right` and `.left` swap to 32x64.
+    private static let stored = CGSize(width: 64, height: 32)
+    private static let orientationCases: [(name: String, transform: CGAffineTransform, upright: CGSize, markerCorner: (right: Bool, bottom: Bool))] = [
+        ("identity", .identity, CGSize(width: 64, height: 32), (right: false, bottom: false)),
+        // Portrait capture, home button below: rotate 90 degrees clockwise to display.
+        ("90 clockwise", CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 32, ty: 0), CGSize(width: 32, height: 64), (right: true, bottom: false)),
+        ("180", CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 64, ty: 32), CGSize(width: 64, height: 32), (right: true, bottom: true)),
+        ("90 counter-clockwise", CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 64), CGSize(width: 32, height: 64), (right: false, bottom: true)),
+    ]
+
+    func testDecodedFramesAreUprightForEveryTrackRotation() async throws {
+        for testCase in Self.orientationCases {
+            let clip = try Self.makeTestClip(
+                frameCount: 5, frameRate: 30.0, frameSize: Self.stored, stillOffsetSeconds: nil,
+                trackTransform: testCase.transform, drawsCornerMarker: true
+            )
+            defer { try? FileManager.default.removeItem(at: clip.directory) }
+            let asset = AVURLAsset(url: clip.mov)
+            let track = try await asset.loadTracks(withMediaType: .video).first!
+
+            var decoded = 0
+            for buffer in try FrameSequence.make(asset: asset, track: track) {
+                decoded += 1
+                XCTAssertEqual(CVPixelBufferGetWidth(buffer), Int(testCase.upright.width), "\(testCase.name): width")
+                XCTAssertEqual(CVPixelBufferGetHeight(buffer), Int(testCase.upright.height), "\(testCase.name): height")
+
+                // The marker is 16 px, so sample well inside each corner.
+                let w = Int(testCase.upright.width), h = Int(testCase.upright.height)
+                let markerX = testCase.markerCorner.right ? w - 8 : 8
+                let markerY = testCase.markerCorner.bottom ? h - 8 : 8
+                let opposite = Self.pixel(buffer, x: testCase.markerCorner.right ? 8 : w - 8, y: testCase.markerCorner.bottom ? 8 : h - 8)
+                let marked = Self.pixel(buffer, x: markerX, y: markerY)
+                XCTAssertGreaterThan(marked.red, 200, "\(testCase.name): marker should be red at its upright corner")
+                XCTAssertLessThan(marked.green, 60, "\(testCase.name): marker should be red, not grey")
+                XCTAssertLessThan(opposite.red, 60, "\(testCase.name): the opposite corner should be black")
+            }
+            XCTAssertEqual(decoded, 5, "\(testCase.name): every frame decodes")
+        }
+    }
+
+    func testClipDescriptorReportsTheUprightSize() async throws {
+        for testCase in Self.orientationCases {
+            let clip = try Self.makeTestClip(
+                frameCount: 5, frameRate: 30.0, frameSize: Self.stored, stillOffsetSeconds: nil, trackTransform: testCase.transform
+            )
+            defer { try? FileManager.default.removeItem(at: clip.directory) }
+            let descriptor = try await LivePhotoImporter.describeClip(heicURL: clip.heic, movURL: clip.mov)
+            XCTAssertEqual(descriptor.width, Int(testCase.upright.width), "\(testCase.name): descriptor width")
+            XCTAssertEqual(descriptor.height, Int(testCase.upright.height), "\(testCase.name): descriptor height")
+        }
+    }
+
+    func testRotatedDecodeStillStreamsInBoundedMemory() async throws {
+        let frameCount = 240
+        let clip = try Self.makeTestClip(
+            frameCount: frameCount, frameRate: 30.0, frameSize: CGSize(width: 640, height: 480), stillOffsetSeconds: nil,
+            trackTransform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 480, ty: 0)
+        )
+        defer { try? FileManager.default.removeItem(at: clip.directory) }
+        let asset = AVURLAsset(url: clip.mov)
+        let track = try await asset.loadTracks(withMediaType: .video).first!
+
+        let baseline = ProcessMemory.residentBytes()
+        var peakGrowth: Int64 = 0
+        var decoded = 0
+        for buffer in try FrameSequence.make(asset: asset, track: track) {
+            XCTAssertEqual(CVPixelBufferGetWidth(buffer), 480)
+            decoded += 1
+            peakGrowth = max(peakGrowth, ProcessMemory.residentBytes() - baseline)
+        }
+        XCTAssertEqual(decoded, frameCount)
+        XCTAssertLessThan(peakGrowth, 20 * 1024 * 1024, "rotating each frame must not retain frames: grew \(peakGrowth) bytes")
+    }
+
+    func testTrackOrientationFromTransforms() {
+        XCTAssertEqual(TrackOrientation(transform: .identity), .up)
+        XCTAssertEqual(TrackOrientation(transform: CGAffineTransform(a: 0, b: 1, c: -1, d: 0, tx: 0, ty: 0)), .right)
+        XCTAssertEqual(TrackOrientation(transform: CGAffineTransform(a: -1, b: 0, c: 0, d: -1, tx: 0, ty: 0)), .down)
+        XCTAssertEqual(TrackOrientation(transform: CGAffineTransform(a: 0, b: -1, c: 1, d: 0, tx: 0, ty: 0)), .left)
+        // Mirrored and non-right-angle transforms are not guessed at.
+        XCTAssertEqual(TrackOrientation(transform: CGAffineTransform(a: -1, b: 0, c: 0, d: 1, tx: 0, ty: 0)), .up)
+        XCTAssertEqual(TrackOrientation(transform: CGAffineTransform(rotationAngle: .pi / 6)), .up)
+    }
+
+    /// BGRA pixel at (x, y), row 0 at the TOP.
+    private static func pixel(_ buffer: CVPixelBuffer, x: Int, y: Int) -> (red: Int, green: Int, blue: Int) {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let row = CVPixelBufferGetBaseAddress(buffer)!.advanced(by: y * CVPixelBufferGetBytesPerRow(buffer)).assumingMemoryBound(to: UInt8.self)
+        return (red: Int(row[x * 4 + 2]), green: Int(row[x * 4 + 1]), blue: Int(row[x * 4]))
+    }
+
     // MARK: - Streaming decode: bounded memory (#8 acceptance)
 
     func testDecodingALongerClipDoesNotGrowResidentMemoryLinearly() async throws {
@@ -219,7 +314,12 @@ final class ImportTests: XCTestCase {
         stillImageTime: Double? = nil,
         /// Writes the EXIF time as LOCAL time in this offset (`"-04:00"`) with `OffsetTimeOriginal`,
         /// as a real Live Photo does. nil writes UTC with no offset (the older test convention).
-        exifUTCOffset: String? = nil
+        exifUTCOffset: String? = nil,
+        /// The track's `preferredTransform`, as a portrait Live Photo carries.
+        trackTransform: CGAffineTransform = .identity,
+        /// Paints a red square in the STORED top-left corner of every frame on black, so a
+        /// decoded frame shows which way it was turned.
+        drawsCornerMarker: Bool = false
     ) throws -> TestClip {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -239,6 +339,7 @@ final class ImportTests: XCTestCase {
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         input.expectsMediaDataInRealTime = false
+        input.transform = trackTransform
         let attributes: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferWidthKey as String: Int(frameSize.width),
@@ -295,7 +396,13 @@ final class ImportTests: XCTestCase {
                 guard let pixelBuffer = pixelBufferOut else { break }
                 let hue = Double(progress.nextIndex) / Double(max(frameCount - 1, 1))
                 let color = CIColor(red: hue, green: 1 - hue, blue: 0.5)
-                let image = CIImage(color: color).cropped(to: CGRect(origin: .zero, size: frameSize))
+                var image = CIImage(color: color).cropped(to: CGRect(origin: .zero, size: frameSize))
+                if drawsCornerMarker {
+                    // Core Image's origin is bottom-left, so the stored TOP-left is the high-y corner.
+                    let marker = CIImage(color: CIColor(red: 1, green: 0, blue: 0))
+                        .cropped(to: CGRect(x: 0, y: frameSize.height - 16, width: 16, height: 16))
+                    image = marker.composited(over: CIImage(color: CIColor.black).cropped(to: CGRect(origin: .zero, size: frameSize)))
+                }
                 context.render(image, to: pixelBuffer, bounds: CGRect(origin: .zero, size: frameSize), colorSpace: nil)
                 let time = CMTime(value: CMTimeValue(progress.nextIndex) * CMTimeValue(frameDuration), timescale: timescale)
                 adaptor.append(pixelBuffer, withPresentationTime: time)

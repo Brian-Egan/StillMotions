@@ -30,7 +30,7 @@ enum ContactSheet {
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw ClipImportError.noVideoTrack(movieURL)
         }
-        let natural = try await track.load(.naturalSize)
+        let natural = try await TrackOrientation.load(from: track).uprightSize(try await track.load(.naturalSize))
         let source = CGSize(width: natural.width.rounded(), height: natural.height.rounded())
         let cell = CGSize(width: Double(cellWidth), height: (Double(cellWidth) * source.height / source.width).rounded())
         let whole = CGRect(origin: .zero, size: source)

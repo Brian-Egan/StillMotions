@@ -42,7 +42,7 @@ public enum LivePhotoImporter {
             throw ClipImportError.noVideoTrack(movURL)
         }
 
-        let size = try await track.load(.naturalSize)
+        let size = try await TrackOrientation.load(from: track).uprightSize(try await track.load(.naturalSize))
         let frameRate = Double(try await track.load(.nominalFrameRate))
         let duration = CMTimeGetSeconds(try await asset.load(.duration))
         let frameTimes = try streamedFrameTimes(asset: asset, track: track)
