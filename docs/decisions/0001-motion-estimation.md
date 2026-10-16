@@ -149,6 +149,51 @@ Three Vision behaviours, each of which changes how the estimators must be used:
    run without flow). Tests of the production flow estimator (#11) must skip when flow is
    unavailable. The synthetic-clip baseline itself must therefore be written on a Mac.
 
+### Outcome of #11: the production flow estimator
+
+`OpticalFlowEstimator` (`Sources/MotionEstimation`) is the harness-only flow estimator. It samples
+a 32x32 grid, calibrates Vision's flow scale once per size and level, and fits an affine
+transform with the deterministic `AffineRANSAC`. It always reports a measured `inlierRatio` and
+returns every grid sample as a `Correspondence`; `estimateWithEvidence` also returns which
+samples were inliers and the mean inlier displacement, which is the residual-motion measurement.
+
+Measured on the same Mac as the spike. A known shift is applied to a real fixture frame
+(`translate-linear` frame 0) and read back. `inlierMeanDisplacement`, px:
+
+| Size | Level | True 0.0 | True 0.5 | True 1.0 | True 2.0 |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 720 | `.medium` | 0.28 | 0.66 | 1.09 | 2.05 |
+| 720 | `.veryHigh` | 0.16 | **0.52** | **1.00** | 2.02 |
+| native 1920 | `.medium` | 0.76 | 1.03 | 1.55 | 2.44 |
+| native 1920 | `.veryHigh` | 0.39 | 0.73 | 1.18 | 2.14 |
+
+Findings that changed the design:
+
+1. **Flow has a noise floor that grows with image size.** Two identical images read 0.16 px at
+   720 and 0.39 px at native, even at `.veryHigh`. The floor, not the flow-scale calibration, is
+   what limits small residuals: moving the calibration shift from 0.4% to 2% of the width changed
+   no reading by more than 0.03 px.
+2. **Default accuracy is `.veryHigh`, not `.medium`.** `.medium` was chosen from #10's
+   large-transform fixtures, which do not exercise sub-pixel motion. At the 720 px size the
+   residual metric is measured at, only `.veryHigh` reads a 0.5 px and a 1.0 px residual within
+   20% (4% and 0%). `ResidualMotionMeter` now uses it. This changes the residual-motion values
+   the harness reports. No baseline is committed yet (`harness/baseline.json` is absent), so no
+   regression gate moves, but any numbers recorded before #11 are not comparable.
+3. **Measure residuals at 720 px, not native.** At native size a 0.5 px residual reads 0.73 px
+   (46% high). The harness already measures at a 720 px long edge; keep it that way.
+4. **Moving-subject rejection works but leaks on flat interiors.** On `moving-subject-large` (a
+   flat orange square, about 23% of the grid) `inlierRatio` is 0.75, against 1.00 on
+   `translate-shake`. Of the grid samples on the subject, 22% still count as inliers against 89%
+   of background samples; 7% of all inliers sit on the subject. A flat interior has no texture for
+   flow to lock onto, so some of its samples return background-like motion. Real subjects have
+   texture, which should help; personal fixtures (#18) will show.
+5. **Memory is not a concern here.** Peak `phys_footprint` growth is 9 MB at 720 and 11 MB at
+   native, against the 200 MB flag. On a Mac, so a relative signal only.
+
+The absolute-accuracy criteria #11 originally carried (at or better than registration on every
+fixture, and lower error on `moving-subject`) were replaced before implementation, on the #10
+measurements: see the comments on #11.
+
 ### Applying the decision rule
 
 1. *Flow everywhere if the cheapest level meeting the transform-error bar costs ≤ 2.0 s for
