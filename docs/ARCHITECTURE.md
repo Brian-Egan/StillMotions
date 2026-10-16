@@ -301,8 +301,9 @@ bound.
 | GIF | gifski via C API | Per-frame palettes, temporal dithering. `repeat = 0` for infinite loop. `gifski_set_write_callback` streams output so peak memory is flat in clip length. |
 | MP4 | `AVAssetWriter`, HEVC | Source frame rate. No loop flag written — none is honoured ([0005](decisions/0005-looping-export.md)). |
 
-gifski reaches Swift through `Sources/CGifski`, a module map over
-`Vendor/Gifski.xcframework`, built by `scripts/build-gifski.sh` for
+gifski reaches Swift through the `CGifski` binary target over
+`Vendor/Gifski.xcframework` (the xcframework carries its own module map; there is no
+`Sources/CGifski`), built by `scripts/build-gifski.sh` for
 `aarch64-apple-darwin`, `aarch64-apple-ios`, and `aarch64-apple-ios-sim`. The artifact is
 gitignored; the script is the record ([0004](decisions/0004-gifski-integration.md)).
 

@@ -37,21 +37,20 @@ let package = Package(
         .target(name: "LoopSelection", dependencies: ["PipelineCore"]),
         .target(name: "Rendering", dependencies: ["PipelineCore"]),
 
-        // Encoding depends on CGifski once the xcframework exists. Both the binary target
-        // and this dependency are commented out deliberately: SwiftPM fails to load a
-        // manifest whose binaryTarget path is missing, and Vendor/Gifski.xcframework is a
-        // gitignored build artifact. Uncomment both in the gifski integration issue, after
-        // scripts/build-gifski.sh has been run. See docs/decisions/0004-gifski-integration.md.
+        // Encoding depends on CGifski, a binary target over Vendor/Gifski.xcframework. That is
+        // a gitignored build artifact: SwiftPM cannot load this manifest until
+        // ./scripts/build-gifski.sh has produced it (CI builds and caches it; see
+        // .github/workflows/verify.yml). See docs/decisions/0004-gifski-integration.md.
         .target(
             name: "Encoding",
             dependencies: [
                 "PipelineCore",
-                // "CGifski",
+                "CGifski",
             ]
         ),
 
         // MARK: - gifski
-        // .binaryTarget(name: "CGifski", path: "Vendor/Gifski.xcframework"),
+        .binaryTarget(name: "CGifski", path: "Vendor/Gifski.xcframework"),
 
         // MARK: - Public façade
 
