@@ -1,6 +1,7 @@
 import CoreImage
 import CoreVideo
 import Foundation
+import StillMotionsPipeline
 import simd
 
 // Measurement helpers for `benchmark-estimators` (#10). Spike-grade by design: they exist to
@@ -44,132 +45,9 @@ enum SpikeBuffers {
         return out
     }
 
-    /// A copy with every masked pixel painted mid-grey. This is registration's only masking
-    /// lever (decision 0001): there is no hook to exclude a region, so the subject has to be
-    /// blanked out of the pixels themselves — which changes the image content.
+    /// See `SubjectMask.blanking`.
     static func blanked(_ buffer: CVPixelBuffer, mask: SubjectMask) throws -> CVPixelBuffer {
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let copy = try makeBGRA(width: width, height: height)
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        CVPixelBufferLockBaseAddress(copy, [])
-        defer {
-            CVPixelBufferUnlockBaseAddress(buffer, .readOnly)
-            CVPixelBufferUnlockBaseAddress(copy, [])
-        }
-        guard let src = CVPixelBufferGetBaseAddress(buffer), let dst = CVPixelBufferGetBaseAddress(copy) else {
-            throw SpikeError("pixel buffer has no base address")
-        }
-        let srcStride = CVPixelBufferGetBytesPerRow(buffer)
-        let dstStride = CVPixelBufferGetBytesPerRow(copy)
-        for y in 0..<height {
-            let srcRow = src.advanced(by: y * srcStride).assumingMemoryBound(to: UInt8.self)
-            let dstRow = dst.advanced(by: y * dstStride).assumingMemoryBound(to: UInt8.self)
-            let ny = (Double(y) + 0.5) / Double(height)
-            for x in 0..<width {
-                let nx = (Double(x) + 0.5) / Double(width)
-                let masked = mask.contains(nx: nx, ny: ny)
-                for c in 0..<4 {
-                    dstRow[x * 4 + c] = masked && c < 3 ? 128 : srcRow[x * 4 + c]
-                }
-            }
-        }
-        return copy
-    }
-}
-
-// MARK: - Subject mask
-
-/// A coarse, already-dilated bitmap of "this pixel belongs to a moving subject", kept at a
-/// fixed small resolution so the same mask serves every estimation resolution. Coordinates
-/// are normalized with a TOP-left origin, matching image rows.
-struct SubjectMask {
-    static let gridWidth = 480
-    static let gridHeight = 270
-
-    let cells: [UInt8]
-
-    var coverage: Double {
-        Double(cells.reduce(0) { $0 + Int($1) }) / Double(cells.count)
-    }
-
-    func contains(nx: Double, ny: Double) -> Bool {
-        let x = min(max(Int(nx * Double(Self.gridWidth)), 0), Self.gridWidth - 1)
-        let y = min(max(Int(ny * Double(Self.gridHeight)), 0), Self.gridHeight - 1)
-        return cells[y * Self.gridWidth + x] != 0
-    }
-
-    /// `rawCells` is any bitmap on the fixed grid; the result is dilated by `radius` cells
-    /// (each cell is 4 native pixels on a 1920-wide frame). Flow is unreliable right at a
-    /// moving boundary, so the exclusion zone has to be a little bigger than the subject.
-    static func dilated(rawCells: [UInt8], radius: Int) -> SubjectMask {
-        let w = gridWidth, h = gridHeight
-        var horizontal = [UInt8](repeating: 0, count: w * h)
-        for y in 0..<h {
-            for x in 0..<w where rawCells[y * w + x] != 0 {
-                for dx in max(0, x - radius)...min(w - 1, x + radius) { horizontal[y * w + dx] = 1 }
-            }
-        }
-        var out = [UInt8](repeating: 0, count: w * h)
-        for y in 0..<h {
-            for x in 0..<w where horizontal[y * w + x] != 0 {
-                for dy in max(0, y - radius)...min(h - 1, y + radius) { out[dy * w + x] = 1 }
-            }
-        }
-        return SubjectMask(cells: out)
-    }
-
-    /// Reads a single-channel mask buffer (8-bit or 32-bit float, either may come back from
-    /// Vision) into the fixed grid by nearest sampling.
-    static func fromSingleChannel(_ buffer: CVPixelBuffer, threshold: Float = 0.5, dilationRadius: Int) throws -> SubjectMask {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { throw SpikeError("mask has no base address") }
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let stride = CVPixelBufferGetBytesPerRow(buffer)
-        let format = CVPixelBufferGetPixelFormatType(buffer)
-        var raw = [UInt8](repeating: 0, count: gridWidth * gridHeight)
-        for gy in 0..<gridHeight {
-            let y = min(height - 1, Int((Double(gy) + 0.5) / Double(gridHeight) * Double(height)))
-            let row = base.advanced(by: y * stride)
-            for gx in 0..<gridWidth {
-                let x = min(width - 1, Int((Double(gx) + 0.5) / Double(gridWidth) * Double(width)))
-                let on: Bool
-                switch format {
-                case kCVPixelFormatType_OneComponent8:
-                    on = Float(row.load(fromByteOffset: x, as: UInt8.self)) / 255 >= threshold
-                case kCVPixelFormatType_OneComponent32Float:
-                    on = row.load(fromByteOffset: x * 4, as: Float.self) >= threshold
-                case kCVPixelFormatType_OneComponent16Half:
-                    on = Float(row.load(fromByteOffset: x * 2, as: Float16.self)) >= threshold
-                default:
-                    throw SpikeError("unsupported mask pixel format \(format)")
-                }
-                raw[gy * gridWidth + gx] = on ? 1 : 0
-            }
-        }
-        return dilated(rawCells: raw, radius: dilationRadius)
-    }
-
-    /// From an RGBA render where the subject is bright on black.
-    static func fromBrightness(_ buffer: CVPixelBuffer, dilationRadius: Int) throws -> SubjectMask {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
-        guard let base = CVPixelBufferGetBaseAddress(buffer) else { throw SpikeError("mask has no base address") }
-        let width = CVPixelBufferGetWidth(buffer)
-        let height = CVPixelBufferGetHeight(buffer)
-        let stride = CVPixelBufferGetBytesPerRow(buffer)
-        var raw = [UInt8](repeating: 0, count: gridWidth * gridHeight)
-        for gy in 0..<gridHeight {
-            let y = min(height - 1, Int((Double(gy) + 0.5) / Double(gridHeight) * Double(height)))
-            let row = base.advanced(by: y * stride)
-            for gx in 0..<gridWidth {
-                let x = min(width - 1, Int((Double(gx) + 0.5) / Double(gridWidth) * Double(width)))
-                raw[gy * gridWidth + gx] = row.load(fromByteOffset: x * 4 + 1, as: UInt8.self) > 128 ? 1 : 0
-            }
-        }
-        return dilated(rawCells: raw, radius: dilationRadius)
+        try mask.blanking(buffer)
     }
 }
 

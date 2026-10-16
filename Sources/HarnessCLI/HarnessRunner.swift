@@ -21,16 +21,18 @@ enum HarnessRunner {
         /// Measure and report only: no GIFs, MP4s or contact sheets. Much faster, and the metrics
         /// are identical because they are computed before any output is written.
         var metricsOnly = false
+        /// Mask moving subjects out of the motion estimate (#19).
+        var masking = false
     }
 
     static let usage = """
         usage: stillmotions-harness --fixtures <dir> --out <dir> [--baseline <file>]
-                                    [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline] [--metrics-only]
+                                    [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline] [--metrics-only] [--masking]
         """
 
     static func parse(_ arguments: [String]) throws -> Options {
         var fixtures: URL?, out: URL?, baseline: URL?
-        var estimator = "registration", solver = "warp", update = false, metricsOnly = false
+        var estimator = "registration", solver = "warp", update = false, metricsOnly = false, masking = false
         var i = 0
         func value(_ flag: String) throws -> String {
             i += 1
@@ -46,6 +48,7 @@ enum HarnessRunner {
             case "--solver": solver = try value("--solver")
             case "--update-baseline": update = true
             case "--metrics-only": metricsOnly = true
+            case "--masking": masking = true
             default: throw SpikeError("unknown argument '\(arguments[i])'\n\(usage)")
             }
             i += 1
@@ -56,7 +59,7 @@ enum HarnessRunner {
             throw SpikeError("--estimator must be 'registration', 'registration-direct' or 'flow', not '\(estimator)'")
         }
         guard ["warp", "l1"].contains(solver) else { throw SpikeError("--solver must be 'warp' or 'l1', not '\(solver)'") }
-        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update, metricsOnly: metricsOnly)
+        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update, metricsOnly: metricsOnly, masking: masking)
     }
 
     // MARK: - Reports
@@ -92,6 +95,10 @@ enum HarnessRunner {
         let estimator: String
         let solver: String
         let estimationFailures: Int
+        /// Frames whose subject mask was applied, and frames where it covered too much and was
+        /// dropped. Both 0 unless run with `--masking`.
+        let maskedFrames: Int
+        let maskSkippedFrames: Int
         let metrics: ClipMetrics
         let failures: [String]
         let crop: [Double]
@@ -214,6 +221,7 @@ enum HarnessRunner {
         return ClipReport(
             name: clip.name, width: 0, height: 0, frameCount: 0, frameRate: 0, referenceIndex: 0,
             estimator: options.estimator, solver: options.solver, estimationFailures: 0,
+            maskedFrames: 0, maskSkippedFrames: 0,
             metrics: metrics, failures: metrics.failures.map(\.rawValue), crop: [], loop: nil,
             residualPairs: 0, residualSkippedPairs: 0, truthRMSpx: nil, outputs: [], timingsMs: [:],
             error: "\(error)"
@@ -241,6 +249,7 @@ enum HarnessRunner {
         let result = try await ClipAnalyzer.analyze(
             movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator,
             strategy: options.estimator == "registration" ? .chained : .reference,
+            masker: options.masking ? SubjectMasker() : nil,
             residualMotion: flowAvailable
                 ? { path in
                     let asset = AVURLAsset(url: clip.movieURL)
@@ -289,6 +298,7 @@ enum HarnessRunner {
             name: clip.name, width: Int(analysis.size.width), height: Int(analysis.size.height),
             frameCount: analysis.motion.count, frameRate: analysis.frameRate, referenceIndex: referenceIndex,
             estimator: options.estimator, solver: options.solver, estimationFailures: analysis.estimationFailures,
+            maskedFrames: analysis.maskedFrames, maskSkippedFrames: analysis.maskSkippedFrames,
             metrics: metrics, failures: metrics.failures.map(\.rawValue),
             crop: [Double(path.crop.minX), Double(path.crop.minY), Double(path.crop.width), Double(path.crop.height)].map { ($0 * 100).rounded() / 100 },
             loop: loop.map {

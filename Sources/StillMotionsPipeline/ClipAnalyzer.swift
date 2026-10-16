@@ -18,6 +18,10 @@ public enum ClipAnalyzer {
         /// transform so one bad frame does not sink the clip; the count is reported so it is
         /// not silent. (Failure detection proper is #20.)
         public let estimationFailures: Int
+        /// Frames whose subject mask was applied (masking on, and something was found).
+        public let maskedFrames: Int
+        /// Frames whose mask covered too much of the picture and was discarded (PRD R-6).
+        public let maskSkippedFrames: Int
     }
 
     /// How each frame's motion onto the reference is found.
@@ -54,6 +58,9 @@ public enum ClipAnalyzer {
         estimator: any MotionEstimator,
         strategy: Strategy = .chained,
         estimationLongEdge: Int = 960,
+        /// When given, moving subjects (people, pets, other foreground) are masked out of the
+        /// estimate. Nil leaves masking off, which is what every caller got before #19.
+        masker: SubjectMasker? = nil,
         renderer: StabilizedRenderer = StabilizedRenderer()
     ) async throws -> MotionResult {
         let asset = AVURLAsset(url: movieURL)
@@ -76,6 +83,28 @@ public enum ClipAnalyzer {
         var motion: [Int: FrameMotion] = [:]
         var failures = 0
         var count = 0
+        var maskedFrames = 0
+        var maskSkippedFrames = 0
+
+        /// The subject mask for an (already scaled) frame; empty when masking is off or fails.
+        func maskOf(_ buffer: CVPixelBuffer) async -> SubjectMask {
+            guard let masker, let result = try? await masker.mask(for: buffer) else { return .empty }
+            if result.skipped { maskSkippedFrames += 1 } else if !result.mask.isEmpty { maskedFrames += 1 }
+            return result.mask
+        }
+
+        /// One estimate, with the subjects of BOTH frames kept out of it. Flow drops the samples
+        /// inside the masks; registration cannot, so both pictures get the union painted grey.
+        func masked(frame: CVPixelBuffer, frameMask: SubjectMask, reference: CVPixelBuffer, referenceMask: SubjectMask) async throws -> FrameMotion {
+            if frameMask.isEmpty && referenceMask.isEmpty {
+                return try await estimator.estimate(frame: frame, reference: reference)
+            }
+            if let flow = estimator as? OpticalFlowEstimator {
+                return try await flow.estimateWithEvidence(frame: frame, reference: reference, frameMask: frameMask, referenceMask: referenceMask).motion
+            }
+            let both = frameMask.union(referenceMask)
+            return try await estimator.estimate(frame: try both.blanking(frame), reference: try both.blanking(reference))
+        }
 
         switch strategy {
         case .reference:
@@ -86,6 +115,7 @@ public enum ClipAnalyzer {
                 index += 1
             }
             guard let reference else { throw ClipImportError.noVideoTrack(movieURL) }
+            let referenceMask = await maskOf(reference)
 
             var previous = matrix_identity_float3x3
             let scratch = try StabilizedRenderer.makeScratchBuffer(width: Int(estimationSize.width), height: Int(estimationSize.height))
@@ -97,7 +127,8 @@ public enum ClipAnalyzer {
                     continue
                 }
                 do {
-                    let estimated = try await estimator.estimate(frame: try scaledCopy(frame, into: scratch), reference: reference)
+                    let scaledFrame = try scaledCopy(frame, into: scratch)
+                    let estimated = try await masked(frame: scaledFrame, frameMask: await maskOf(scaledFrame), reference: reference, referenceMask: referenceMask)
                     // Back into native pixels: T_native = S^-1 * T * S.
                     previous = toEstimation.inverse * estimated.transform * toEstimation
                     motion[index] = FrameMotion(index: index, transform: previous, correspondences: estimated.correspondences, inlierRatio: estimated.inlierRatio)
@@ -111,6 +142,8 @@ public enum ClipAnalyzer {
         case .chained:
             // Frames up to and including the reference are kept (scaled); the rest stream past.
             var head: [CVPixelBuffer] = []
+            var headMasks: [SubjectMask] = []
+            var previousMask = SubjectMask.empty
             var index = 0
             var previousBuffer: CVPixelBuffer?
             var chain = matrix_identity_float3x3 // T for the previous frame, in estimation coordinates
@@ -120,9 +153,9 @@ public enum ClipAnalyzer {
             ]
 
             /// One step: where `frame` is, relative to `neighbour`. Identity when it cannot tell.
-            func step(frame: CVPixelBuffer, neighbour: CVPixelBuffer) async -> simd_float3x3 {
+            func step(frame: CVPixelBuffer, frameMask: SubjectMask, neighbour: CVPixelBuffer, neighbourMask: SubjectMask) async -> simd_float3x3 {
                 do {
-                    let estimated = try await estimator.estimate(frame: frame, reference: neighbour)
+                    let estimated = try await masked(frame: frame, frameMask: frameMask, reference: neighbour, referenceMask: neighbourMask)
                     try VisionRegistrationEstimator.checkPlausibility(
                         estimated.transform, frameWidth: Int(estimationSize.width), frameHeight: Int(estimationSize.height),
                         bounds: stepPlausibility
@@ -137,20 +170,25 @@ public enum ClipAnalyzer {
             for frame in try FrameSequence.make(asset: asset, track: track) {
                 defer { index += 1 }
                 if index <= referenceIndex {
-                    head.append(try scaledCopy(frame))
+                    let copy = try scaledCopy(frame)
+                    head.append(copy)
+                    headMasks.append(await maskOf(copy))
                     if index == referenceIndex {
                         motion[index] = FrameMotion(index: index, transform: matrix_identity_float3x3)
                         previousBuffer = head[index]
+                        previousMask = headMasks[index]
                     }
                     continue
                 }
                 // Forward from the reference: T_i = step_i * T_(i-1), a step mapping frame i-1 onto frame i.
                 let current = try scaledCopy(frame, into: scratch[index % 2])
                 guard let neighbour = previousBuffer else { continue }
-                chain = await step(frame: current, neighbour: neighbour) * chain
+                let currentMask = await maskOf(current)
+                chain = await step(frame: current, frameMask: currentMask, neighbour: neighbour, neighbourMask: previousMask) * chain
                 motion[index] = FrameMotion(index: index, transform: toEstimation.inverse * chain * toEstimation)
                 // The next step needs this frame as its neighbour, and the scratch buffers alternate.
                 previousBuffer = current
+                previousMask = currentMask
             }
             count = index
             guard head.count > referenceIndex else { throw ClipImportError.noVideoTrack(movieURL) }
@@ -159,7 +197,7 @@ public enum ClipAnalyzer {
             chain = matrix_identity_float3x3
             var i = referenceIndex - 1
             while i >= 0 {
-                chain = await step(frame: head[i], neighbour: head[i + 1]) * chain
+                chain = await step(frame: head[i], frameMask: headMasks[i], neighbour: head[i + 1], neighbourMask: headMasks[i + 1]) * chain
                 motion[i] = FrameMotion(index: i, transform: toEstimation.inverse * chain * toEstimation)
                 i -= 1
             }
@@ -167,7 +205,7 @@ public enum ClipAnalyzer {
 
         let ordered = (0..<count).map { motion[$0] ?? FrameMotion(index: $0, transform: matrix_identity_float3x3) }
         let frameTimes = try FrameSequence.presentationTimes(asset: asset, track: track)
-        return MotionResult(motion: ordered, size: size, frameRate: frameRate, frameTimes: frameTimes, estimationFailures: failures)
+        return MotionResult(motion: ordered, size: size, frameRate: frameRate, frameTimes: frameTimes, estimationFailures: failures, maskedFrames: maskedFrames, maskSkippedFrames: maskSkippedFrames)
     }
 
     /// One signature per source frame of the STABILIZED, cropped picture, for loop selection.
