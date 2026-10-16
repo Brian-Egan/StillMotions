@@ -139,6 +139,16 @@ Three Vision behaviours, each of which changes how the estimators must be used:
    registration. Whether an iPhone pays this, and whether it persists across launches, is
    unknown and goes to the on-device checklist (#26).
 
+4. **Vision optical flow does not run on GitHub-hosted macOS runners** (found in #17): the
+   request fails with `memFullErr` ("failed to analyze motion flow"), while registration,
+   segmentation, Core Image and HEVC encoding all work there. Consequences: anything built on
+   flow cannot be exercised in CI, so the harness probes for flow, records residual motion as
+   "not measured" when it is missing, and the CI regression check then covers crop retention,
+   loop seam and every per-clip verdict that does not need residual motion. The residual-motion
+   clause of PRD §1.4 is enforced by local runs (and by `--update-baseline`, which refuses to
+   run without flow). Tests of the production flow estimator (#11) must skip when flow is
+   unavailable. The synthetic-clip baseline itself must therefore be written on a Mac.
+
 ### Applying the decision rule
 
 1. *Flow everywhere if the cheapest level meeting the transform-error bar costs ≤ 2.0 s for

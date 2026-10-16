@@ -261,6 +261,7 @@ struct SpikeFit {
     let transform: simd_float3x3
     let inlierRatio: Double
     let inliers: Int
+    let inlierIndices: [Int]
 }
 
 enum SpikeAffine {
@@ -312,6 +313,6 @@ enum SpikeAffine {
             SIMD3<Float>(Float(refit[0][1]), Float(refit[1][1]), Float(refit[2][1])),
             SIMD3<Float>(0, 0, 1),
         ])
-        return SpikeFit(transform: t, inlierRatio: Double(best.inliers.count) / Double(pairs.count), inliers: best.inliers.count)
+        return SpikeFit(transform: t, inlierRatio: Double(best.inliers.count) / Double(pairs.count), inliers: best.inliers.count, inlierIndices: best.inliers)
     }
 }

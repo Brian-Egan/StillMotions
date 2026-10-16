@@ -1,0 +1,54 @@
+{
+  "clips" : {
+    "combined" : {
+      "cropRetention" : 0.7764445644140526,
+      "loopSeamRatio" : 0.18862336211734348,
+      "passed" : true,
+      "residualMotion" : 0.18219502593437883
+    },
+    "moving-subject" : {
+      "cropRetention" : 0.9694925913661312,
+      "loopSeamRatio" : 1.0416843626234267,
+      "passed" : true,
+      "residualMotion" : 0.29287573415408
+    },
+    "parallax" : {
+      "cropRetention" : 0.9841771889788147,
+      "loopSeamRatio" : 0.4744378725687663,
+      "passed" : true,
+      "residualMotion" : 0.14497452201537928
+    },
+    "periodic" : {
+      "cropRetention" : 0.9631497954259896,
+      "loopSeamRatio" : 0.3428504996829563,
+      "passed" : true,
+      "residualMotion" : 0.29101012719867575
+    },
+    "rotate" : {
+      "cropRetention" : 0.839486396402927,
+      "loopSeamRatio" : 0.19784457153744167,
+      "passed" : true,
+      "residualMotion" : 0.15857877620043972
+    },
+    "scale" : {
+      "cropRetention" : 0.9242748200555396,
+      "loopSeamRatio" : 0.18922776646084255,
+      "passed" : true,
+      "residualMotion" : 0.1471055947935442
+    },
+    "translate-linear" : {
+      "cropRetention" : 0.9588832166728335,
+      "loopSeamRatio" : 0.14537035094367134,
+      "passed" : true,
+      "residualMotion" : 0.13960779662236
+    },
+    "translate-shake" : {
+      "cropRetention" : 0.9707475360083171,
+      "loopSeamRatio" : 0.4688790639241536,
+      "passed" : true,
+      "residualMotion" : 0.2850462069163054
+    }
+  },
+  "estimator" : "registration",
+  "solver" : "warp"
+}
