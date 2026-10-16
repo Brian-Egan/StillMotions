@@ -22,11 +22,14 @@ final class MotionEstimationTests: XCTestCase {
     /// Every 10th frame (skipping 0, which is trivially identity against itself): enough
     /// coverage to catch a systematic error without paying Vision's cost on all 90 frames
     /// times 5 fixtures in every `swift test` run.
+    /// See decisions/0007-registration-accuracy-bar.md.
+    static let rmsBarPx = 0.75
+
     static let sampledIndices = stride(from: 10, to: 90, by: 10).map { $0 }
 
-    // MARK: - Accuracy (#9 acceptance: 0.5px RMS)
+    // MARK: - Accuracy (#9 acceptance; bar raised from 0.5px to 0.75px, see decisions/0007)
 
-    func testRecoveredTransformsMatchKnownMotionWithin0_5pxRMS() async throws {
+    func testRecoveredTransformsMatchKnownMotionWithin0_75pxRMS() async throws {
         let estimator = VisionRegistrationEstimator()
         var report = "fixture,meanRMSpx,maxRMSpx\n"
 
@@ -46,7 +49,7 @@ final class MotionEstimationTests: XCTestCase {
                 let truthMatrix = truth.frames[loaded.index].matrix * referenceInverse
                 let rms = Self.rms(recovered: motion.transform, truth: truthMatrix, frameSize: CGSize(width: truth.width, height: truth.height))
                 rmsValues.append(rms)
-                XCTAssertLessThan(rms, 0.5, "\(name) frame \(loaded.index): RMS \(rms)px exceeds 0.5px")
+                XCTAssertLessThan(rms, Self.rmsBarPx, "\(name) frame \(loaded.index): RMS \(rms)px exceeds \(Self.rmsBarPx)px")
             }
             let mean = rmsValues.reduce(0, +) / Double(rmsValues.count)
             let max = rmsValues.max() ?? 0
