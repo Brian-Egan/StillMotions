@@ -28,4 +28,21 @@ public enum GifFrameRate: String, Codable, CaseIterable, Sendable {
             min(sourceCount - 1, Int((Double(tick) * sourceRate / framesPerSecond + 0.5).rounded(.down)))
         }
     }
+
+    /// The same selection for a clip with real frame times (variable frame rate): output tick `k`
+    /// is at `k / fps`, and gets the source frame whose time is nearest. The GIF then plays for as
+    /// long as the clip does, which index-based decimation does not when frames are unevenly spaced.
+    /// For evenly spaced times this returns what `sourceIndices(sourceCount:sourceRate:)` does.
+    public func sourceIndices(frameTimes: [Double]) -> [Int] {
+        let relative = FrameTiming.relative(frameTimes)
+        guard !relative.isEmpty else { return [] }
+        let duration = FrameTiming.duration(of: relative)
+        guard duration > 0 else { return [0] }
+        // The tiny nudge keeps an exact whole number of ticks (3 s at 20 fps) from rounding down
+        // to one fewer through floating-point noise.
+        let outputCount = max(1, Int((duration * framesPerSecond + 1e-9).rounded(.down)))
+        return (0..<outputCount).map { tick in
+            FrameTiming.nearestIndex(to: Double(tick) / framesPerSecond, in: relative)
+        }
+    }
 }

@@ -12,6 +12,8 @@ public enum ClipAnalyzer {
         /// Native pixel size of the clip.
         public let size: CGSize
         public let frameRate: Double
+        /// Each frame's presentation time in seconds. Real Live Photo video is variable frame rate.
+        public let frameTimes: [Double]
         /// Frames the estimator rejected or failed on. Each reuses the previous frame's
         /// transform so one bad frame does not sink the clip; the count is reported so it is
         /// not silent. (Failure detection proper is #20.)
@@ -164,7 +166,8 @@ public enum ClipAnalyzer {
         }
 
         let ordered = (0..<count).map { motion[$0] ?? FrameMotion(index: $0, transform: matrix_identity_float3x3) }
-        return MotionResult(motion: ordered, size: size, frameRate: frameRate, estimationFailures: failures)
+        let frameTimes = try FrameSequence.presentationTimes(asset: asset, track: track)
+        return MotionResult(motion: ordered, size: size, frameRate: frameRate, frameTimes: frameTimes, estimationFailures: failures)
     }
 
     /// One signature per source frame of the STABILIZED, cropped picture, for loop selection.

@@ -65,11 +65,18 @@ public struct VideoEncoder {
     /// - Once writes the clip as is.
     /// - Loop throws `VideoEncodingError.loopNotSupported`.
     ///
+    /// `frameTimes`, when given, are the source's presentation times in seconds for the frames
+    /// `nextFrame` produces, in order. The file then carries those times, so a variable-frame-rate
+    /// clip plays at the speed it was shot at; without them every frame is `1 / frameRate` apart.
+    /// Bounce's reverse pass replays the gaps between frames backwards. If there are fewer times
+    /// than frames, the last gap repeats.
+    ///
     /// Cancelling the surrounding task stops the encode and removes the partial file.
     public func encode(
         nextFrame: () throws -> CVPixelBuffer?,
         frameRate: Double,
         mode: PlaybackMode,
+        frameTimes: [Double]? = nil,
         to url: URL
     ) async throws -> VideoEncodingResult {
         guard mode != .loop else { throw VideoEncodingError.loopNotSupported }
@@ -85,6 +92,18 @@ public struct VideoEncoder {
         // Frame timestamps are exact multiples of 1/(rate): 29.97 becomes 30000/1001 style
         // rationals via a x1000 timescale rather than drifting through Double arithmetic.
         let timescale = Int32((frameRate * 1000).rounded())
+        // With real frame times: seconds on a 1/60000 grid, which holds a 600-timescale source
+        // (what Live Photos use) exactly.
+        let sourceTimes = frameTimes.map(FrameTiming.relative)
+        /// Where each forward frame was stamped, in seconds. Bounce's reverse pass needs them.
+        var stamped: [Double] = []
+        func forwardTime(_ index: Int) -> Double? {
+            guard let sourceTimes, !sourceTimes.isEmpty else { return nil }
+            if index < sourceTimes.count { return sourceTimes[index] }
+            // More frames than times: keep going at the last gap.
+            let lastGap = sourceTimes.count >= 2 ? sourceTimes[sourceTimes.count - 1] - sourceTimes[sourceTimes.count - 2] : 1 / frameRate
+            return sourceTimes[sourceTimes.count - 1] + Double(index - sourceTimes.count + 1) * lastGap
+        }
 
         func fail(_ error: Error) -> Error {
             writer?.cancelWriting()
@@ -92,13 +111,18 @@ public struct VideoEncoder {
             return error
         }
 
-        func append(_ buffer: CVPixelBuffer) async throws {
+        func append(_ buffer: CVPixelBuffer, at seconds: Double? = nil) async throws {
             guard let input, let adaptor else { return }
             while !input.isReadyForMoreMediaData {
                 try Task.checkCancellation()
                 try await Task.sleep(for: .milliseconds(2))
             }
-            let time = CMTime(value: CMTimeValue(written) * 1000, timescale: timescale)
+            let time: CMTime
+            if let seconds {
+                time = CMTime(value: CMTimeValue((seconds * 60_000).rounded()), timescale: 60_000)
+            } else {
+                time = CMTime(value: CMTimeValue(written) * 1000, timescale: timescale)
+            }
             guard adaptor.append(buffer, withPresentationTime: time) else {
                 throw VideoEncodingError.writerFailed(writer?.error?.localizedDescription ?? "append failed")
             }
@@ -143,16 +167,21 @@ public struct VideoEncoder {
                     )
                 }
                 try spool?.append(frame)
-                try await append(frame)
+                let seconds = forwardTime(written)
+                if let seconds { stamped.append(seconds) }
+                try await append(frame, at: seconds)
             }
             guard let writer, let input else { throw VideoEncodingError.noFrames }
 
             if let spool, spool.count >= 2 {
                 // Back down the clip, skipping the last frame (just shown) so the turnaround
                 // is not doubled. The first frame is included: the clip ends where it began.
+                var reverseTime = stamped.last
                 for index in stride(from: spool.count - 2, through: 0, by: -1) {
                     try Task.checkCancellation()
-                    try await append(try spool.buffer(at: index))
+                    // Going back over the same interval the clip went forward over.
+                    if let t = reverseTime, stamped.count > index + 1 { reverseTime = t + (stamped[index + 1] - stamped[index]) }
+                    try await append(try spool.buffer(at: index), at: reverseTime)
                 }
             }
 
@@ -169,9 +198,9 @@ public struct VideoEncoder {
 
     /// Convenience for a frame sequence.
     public func encode<Frames: Sequence>(
-        frames: Frames, frameRate: Double, mode: PlaybackMode, to url: URL
+        frames: Frames, frameRate: Double, mode: PlaybackMode, frameTimes: [Double]? = nil, to url: URL
     ) async throws -> VideoEncodingResult where Frames.Element == CVPixelBuffer {
         var iterator = frames.makeIterator()
-        return try await encode(nextFrame: { iterator.next() }, frameRate: frameRate, mode: mode, to: url)
+        return try await encode(nextFrame: { iterator.next() }, frameRate: frameRate, mode: mode, frameTimes: frameTimes, to: url)
     }
 }

@@ -15,6 +15,9 @@ public struct ClipDescriptor: Equatable {
     /// Index of the frame nearest the Live Photo's key-photo timestamp — the default
     /// reference frame for motion estimation (PRD R-4, R-5).
     public let referenceFrameIndex: Int
+    /// Each frame's presentation time in seconds, ascending. Real Live Photo video is variable
+    /// frame rate, so `frameCount / sourceFrameRate` is only an approximation of the duration.
+    public let frameTimes: [Double]
 
     public init(
         width: Int,
@@ -22,7 +25,8 @@ public struct ClipDescriptor: Equatable {
         frameCount: Int,
         sourceFrameRate: Double,
         duration: Double,
-        referenceFrameIndex: Int
+        referenceFrameIndex: Int,
+        frameTimes: [Double] = []
     ) {
         self.width = width
         self.height = height
@@ -30,5 +34,6 @@ public struct ClipDescriptor: Equatable {
         self.sourceFrameRate = sourceFrameRate
         self.duration = duration
         self.referenceFrameIndex = referenceFrameIndex
+        self.frameTimes = frameTimes
     }
 }
