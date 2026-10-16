@@ -99,6 +99,9 @@ enum HarnessRunner {
         let truthRMSpx: Double?
         let outputs: [OutputReport]
         let timingsMs: [String: Double]
+        /// Why the clip could not be processed at all (for example no common area to crop to).
+        /// Such a clip counts as a stabilization failure; it does not stop the run.
+        let error: String?
     }
 
     struct Summary: Codable {
@@ -141,14 +144,21 @@ enum HarnessRunner {
         var reports: [ClipReport] = []
         for clip in clips {
             print("== \(clip.name)")
-            let report = try await process(clip, options: options, estimator: estimator, flowAvailable: flowAvailable)
+            let report: ClipReport
+            do {
+                report = try await process(clip, options: options, estimator: estimator, flowAvailable: flowAvailable)
+            } catch {
+                // A clip that cannot be processed is a stabilization failure to report, not a
+                // reason to abandon the other clips (real footage will contain some).
+                report = failedReport(clip, options: options, error: error)
+            }
             reports.append(report)
             let m = report.metrics
             print(String(
                 format: "   crop %.1f%%  residual %@  seam %@  %@  (%.1f s)",
                 m.cropRetention * 100, m.residualMotion.map { String(format: "%.3f px", $0) } ?? "not measured",
                 m.loopSeamRatio.map { String(format: "%.2fx", $0) } ?? "n/a",
-                m.passed ? "PASS" : "FAIL: " + report.failures.joined(separator: ", "),
+                m.passed ? "PASS" : "FAIL: " + report.failures.joined(separator: ", ") + (report.error.map { " (\($0))" } ?? ""),
                 (report.timingsMs["total"] ?? 0) / 1000
             ))
         }
@@ -188,6 +198,19 @@ enum HarnessRunner {
         print("\nREGRESSION CHECK FAILED:")
         for problem in problems { print("  - \(problem)") }
         return 1
+    }
+
+    /// What a clip that could not be processed looks like in the results: zero crop retention,
+    /// so it fails the crop threshold and is counted, with the reason attached.
+    static func failedReport(_ clip: ClipInput, options: Options, error: Error) -> ClipReport {
+        let metrics = ClipMetrics(cropRetention: 0)
+        return ClipReport(
+            name: clip.name, width: 0, height: 0, frameCount: 0, frameRate: 0, referenceIndex: 0,
+            estimator: options.estimator, solver: options.solver, estimationFailures: 0,
+            metrics: metrics, failures: metrics.failures.map(\.rawValue), crop: [], loop: nil,
+            residualPairs: 0, residualSkippedPairs: 0, truthRMSpx: nil, outputs: [], timingsMs: [:],
+            error: "\(error)"
+        )
     }
 
     // MARK: - One clip
@@ -271,7 +294,8 @@ enum HarnessRunner {
                 )
             },
             residualPairs: residual?.pairs ?? 0, residualSkippedPairs: residual?.skippedPairs ?? 0,
-            truthRMSpx: truthRMS, outputs: outputs, timingsMs: timings.mapValues { ($0 * 10).rounded() / 10 }
+            truthRMSpx: truthRMS, outputs: outputs, timingsMs: timings.mapValues { ($0 * 10).rounded() / 10 },
+            error: nil
         )
         try write(report, to: outDir.appendingPathComponent("metrics.json"))
         return report
