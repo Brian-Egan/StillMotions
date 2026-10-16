@@ -25,12 +25,18 @@ public enum ClipExporter {
             throw ClipImportError.noVideoTrack(movieURL)
         }
         let frameRate = Double(try await track.load(.nominalFrameRate))
+        // The source's own frame times: real Live Photo video is variable frame rate, and a file
+        // timestamped at the nominal rate would play it at the wrong speed.
+        let times = try FrameSequence.presentationTimes(asset: asset, track: track)
         let frames = try FrameSequence.make(asset: asset, track: track)
         let outputSize = OutputSize.size(forCrop: path.crop, longEdge: preset.longEdge)
         let nextFrame = try renderer.makeProducer(
             frames: frames, corrections: path.corrections, crop: path.crop, outputSize: outputSize
         )
-        return try await encoder.encode(nextFrame: nextFrame, frameRate: frameRate, mode: mode, to: url)
+        return try await encoder.encode(
+            nextFrame: nextFrame, frameRate: frameRate, mode: mode,
+            frameTimes: times.count == path.corrections.count ? times : nil, to: url
+        )
     }
 
     /// Decodes `movieURL`, stabilizes it with `path`, renders at `preset`'s size, decimates to
@@ -57,19 +63,24 @@ public enum ClipExporter {
         }
         let sourceRate = Double(try await track.load(.nominalFrameRate))
         let outputSize = OutputSize.size(forCrop: path.crop, longEdge: preset.longEdge)
+        // Output ticks pick the source frame nearest in TIME, so the GIF lasts as long as the clip
+        // even when the source is variable frame rate. Falls back to the nominal rate only if the
+        // times do not line up with the frames.
+        let decodedTimes = try FrameSequence.presentationTimes(asset: asset, track: track)
+        let times: [Double]? = decodedTimes.count == path.corrections.count ? decodedTimes : nil
 
         if mode == .loop, let loop {
             let nextFrame = try loopProducer(
                 asset: asset, track: track, path: path, loop: loop, frameRate: frameRate,
-                sourceRate: sourceRate, outputSize: outputSize, renderer: renderer
+                sourceRate: sourceRate, frameTimes: times, outputSize: outputSize, renderer: renderer
             )
             return try await encoder.encode(nextFrame: nextFrame, frameRate: frameRate, mode: mode, to: url)
         }
 
         let range = trim ?? 0..<path.corrections.count
-        let kept = frameRate
-            .sourceIndices(sourceCount: range.count, sourceRate: sourceRate)
-            .map { $0 + range.lowerBound }
+        let chosen = times.map { frameRate.sourceIndices(frameTimes: Array($0[range])) }
+            ?? frameRate.sourceIndices(sourceCount: range.count, sourceRate: sourceRate)
+        let kept = chosen.map { $0 + range.lowerBound }
         let frames = SelectedFrames(source: try FrameSequence.make(asset: asset, track: track), indices: kept)
         let nextFrame = try renderer.makeProducer(
             frames: frames, corrections: kept.map { path.corrections[$0] },
@@ -86,10 +97,12 @@ public enum ClipExporter {
     /// the loop then streams in order.
     static func loopProducer(
         asset: AVAsset, track: AVAssetTrack, path: CameraPath, loop: LoopSelection,
-        frameRate: GifFrameRate, sourceRate: Double, outputSize: CGSize, renderer: StabilizedRenderer
+        frameRate: GifFrameRate, sourceRate: Double, frameTimes: [Double]? = nil, outputSize: CGSize, renderer: StabilizedRenderer
     ) throws -> () throws -> CVPixelBuffer? {
-        // Positions within the loop that survive decimation to the GIF rate.
-        let positions = frameRate.sourceIndices(sourceCount: loop.length, sourceRate: sourceRate)
+        // Positions within the loop that survive decimation to the GIF rate, by the frames' real
+        // times when known.
+        let positions = frameTimes.map { frameRate.sourceIndices(frameTimes: Array($0[loop.startIndex..<loop.returnIndex])) }
+            ?? frameRate.sourceIndices(sourceCount: loop.length, sourceRate: sourceRate)
         let recipes = positions.map { loop.frames[$0] }
 
         // Which source frames the blends need, rendered in one forward pass.

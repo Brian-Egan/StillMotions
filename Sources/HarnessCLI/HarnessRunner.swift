@@ -241,7 +241,7 @@ enum HarnessRunner {
         // Loop selection runs on signatures of the stabilized, cropped frames.
         let loop: LoopSelection? = try await timed("loopSelection") {
             let signatures = try await ClipAnalyzer.signatures(movieURL: clip.movieURL, path: path, renderer: renderer)
-            if case .selected(let selection) = try LoopSelector.select(signatures: signatures, frameRate: analysis.frameRate, mode: .loop) {
+            if case .selected(let selection) = try LoopSelector.select(signatures: signatures, frameRate: analysis.frameRate, mode: .loop, frameTimes: analysis.frameTimes) {
                 return selection
             }
             return nil

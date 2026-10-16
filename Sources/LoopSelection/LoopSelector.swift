@@ -81,29 +81,45 @@ public enum LoopSelector {
     /// Finds the pair of frames, one near each end, that look most alike, and returns the loop
     /// between them with a short crossfade. `signatures` are of the STABILIZED, cropped
     /// frames: that is what a viewer sees, so that is what has to match.
+    ///
+    /// `frameTimes` are the frames' presentation times in seconds, one per signature. Pass them for
+    /// real (variable frame rate) clips: the minimum loop length is then measured in seconds, not
+    /// counted in frames at a nominal rate, and the start window is the first `windowFraction` of
+    /// the clip's time. Without them frames are assumed evenly spaced at `frameRate`. For evenly
+    /// spaced times both give the same answer.
     public static func select(
         signatures: [FrameSignature],
         frameRate: Double,
         mode: PlaybackMode,
-        config: LoopSelectionConfig = LoopSelectionConfig()
+        config: LoopSelectionConfig = LoopSelectionConfig(),
+        frameTimes: [Double]? = nil
     ) throws -> LoopOutcome {
         guard mode == .loop else { return .skipped(mode) }
         guard frameRate > 0 else { throw LoopSelectionError.invalidFrameRate(frameRate) }
         let count = signatures.count
         guard count >= 3 else { throw LoopSelectionError.tooFewFrames(count) }
 
+        let times = frameTimes.flatMap { $0.count == count ? FrameTiming.relative($0) : nil }
         let minimumLength = max(2, Int((config.minimumDuration * frameRate).rounded(.up)))
         // The crossfade reads `crossfadeFrames` frames from the return frame onward.
         let fade = max(0, config.crossfadeFrames)
         let lastReturn = max(1, count - max(fade, 1))
-        let windowFrames = max(1, Int((Double(count) * config.windowFraction).rounded(.up)))
+        let windowFrames: Int
+        if let times {
+            // Frames inside the first `windowFraction` of the clip's playing time; the end window
+            // uses the same number of frames.
+            let limit = FrameTiming.duration(of: times) * config.windowFraction - 1e-9
+            windowFrames = max(1, times.filter { $0 < limit }.count)
+        } else {
+            windowFrames = max(1, Int((Double(count) * config.windowFraction).rounded(.up)))
+        }
         let startCandidates = 0..<min(windowFrames, count)
         let firstReturn = max(1, count - windowFrames)
         let returnCandidates = firstReturn <= lastReturn ? Array(firstReturn...lastReturn) : []
 
         var best: (start: Int, returnIndex: Int, difference: Double)?
         for start in startCandidates {
-            for returnIndex in returnCandidates where returnIndex - start >= minimumLength {
+            for returnIndex in returnCandidates where Self.longEnough(start: start, returnIndex: returnIndex, minimumLength: minimumLength, minimumDuration: config.minimumDuration, times: times) {
                 let difference = signatures[start].difference(to: signatures[returnIndex])
                 // Strict `<` keeps the earliest pair on a tie; among pairs with the same
                 // difference that is the longest loop at that start.
@@ -124,6 +140,14 @@ public enum LoopSelector {
             return .selected(makeSelection(signatures: signatures, start: start, returnIndex: returnIndex, fade: 0))
         }
         return .selected(faded)
+    }
+
+    /// A loop from `start` to `returnIndex` plays for the time between those two frames. With real
+    /// frame times that is what is compared with the minimum duration; the small tolerance keeps a
+    /// loop of exactly the minimum from failing on floating-point noise.
+    static func longEnough(start: Int, returnIndex: Int, minimumLength: Int, minimumDuration: Double, times: [Double]?) -> Bool {
+        guard let times else { return returnIndex - start >= minimumLength }
+        return returnIndex - start >= 2 && times[returnIndex] - times[start] >= minimumDuration - 1e-6
     }
 
     static func makeSelection(signatures: [FrameSignature], start: Int, returnIndex: Int, fade: Int) -> LoopSelection {

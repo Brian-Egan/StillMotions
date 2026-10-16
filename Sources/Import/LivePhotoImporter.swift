@@ -45,7 +45,7 @@ public enum LivePhotoImporter {
         let size = try await track.load(.naturalSize)
         let frameRate = Double(try await track.load(.nominalFrameRate))
         let duration = CMTimeGetSeconds(try await asset.load(.duration))
-        let frameTimes = try streamedFrameTimes(asset: asset, track: track)
+        let frameTimes = try FrameSequence.presentationTimes(asset: asset, track: track)
 
         var stillTime = try await stillImageTime(asset: asset)
         if stillTime == nil { stillTime = try await exifStillTime(heicURL: heicURL, asset: asset) }
@@ -58,26 +58,9 @@ public enum LivePhotoImporter {
             frameCount: frameCount,
             sourceFrameRate: frameRate,
             duration: duration,
-            referenceFrameIndex: referenceFrameIndex
+            referenceFrameIndex: referenceFrameIndex,
+            frameTimes: frameTimes
         )
-    }
-
-    /// The presentation time of every frame, by decoding: the same path `FrameSequence` streams
-    /// through, so the count is the number of frames a caller will actually receive (see its doc
-    /// comment for why the compressed sample count is not the source of truth on this toolchain).
-    private static func streamedFrameTimes(asset: AVAsset, track: AVAssetTrack) throws -> [Double] {
-        let reader = try AVAssetReader(asset: asset)
-        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-        ])
-        output.alwaysCopiesSampleData = false
-        reader.add(output)
-        guard reader.startReading() else { throw ClipImportError.readerFailedToStart(reader.error) }
-        var times: [Double] = []
-        while let sample = output.copyNextSampleBuffer() {
-            times.append(CMSampleBufferGetPresentationTimeStamp(sample).seconds)
-        }
-        return times
     }
 
     /// The still's position in the movie from its `still-image-time` metadata track, or `nil`
