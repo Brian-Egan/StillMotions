@@ -18,16 +18,19 @@ enum HarnessRunner {
         var estimator = "registration"
         var solver = "warp"
         var updateBaseline = false
+        /// Measure and report only: no GIFs, MP4s or contact sheets. Much faster, and the metrics
+        /// are identical because they are computed before any output is written.
+        var metricsOnly = false
     }
 
     static let usage = """
         usage: stillmotions-harness --fixtures <dir> --out <dir> [--baseline <file>]
-                                    [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline]
+                                    [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline] [--metrics-only]
         """
 
     static func parse(_ arguments: [String]) throws -> Options {
         var fixtures: URL?, out: URL?, baseline: URL?
-        var estimator = "registration", solver = "warp", update = false
+        var estimator = "registration", solver = "warp", update = false, metricsOnly = false
         var i = 0
         func value(_ flag: String) throws -> String {
             i += 1
@@ -42,6 +45,7 @@ enum HarnessRunner {
             case "--estimator": estimator = try value("--estimator")
             case "--solver": solver = try value("--solver")
             case "--update-baseline": update = true
+            case "--metrics-only": metricsOnly = true
             default: throw SpikeError("unknown argument '\(arguments[i])'\n\(usage)")
             }
             i += 1
@@ -52,7 +56,7 @@ enum HarnessRunner {
             throw SpikeError("--estimator must be 'registration', 'registration-direct' or 'flow', not '\(estimator)'")
         }
         guard ["warp", "l1"].contains(solver) else { throw SpikeError("--solver must be 'warp' or 'l1', not '\(solver)'") }
-        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update)
+        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update, metricsOnly: metricsOnly)
     }
 
     // MARK: - Reports
@@ -231,47 +235,41 @@ enum HarnessRunner {
         }
 
         let referenceIndex = try await clip.referenceIndex()
-        let analysis = try await timed("estimate") {
-            try await ClipAnalyzer.estimateMotion(
-                movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator,
-                strategy: options.estimator == "registration" ? .chained : .reference, renderer: renderer
-            )
-        }
-        let path = try await timed("solve") {
-            try WarpToReferenceSolver().solve(motion: analysis.motion, frameSize: analysis.size)
-        }
-
-        // Loop selection runs on signatures of the stabilized, cropped frames.
-        let loop: LoopSelection? = try await timed("loopSelection") {
-            let signatures = try await ClipAnalyzer.signatures(movieURL: clip.movieURL, path: path, renderer: renderer)
-            if case .selected(let selection) = try LoopSelector.select(signatures: signatures, frameRate: analysis.frameRate, mode: .loop, frameTimes: analysis.frameTimes) {
-                return selection
-            }
-            return nil
-        }
-
-        // Residual motion on the stabilized frames at preview size, in playback order.
-        let residual: ResidualMotionMeter.Result? = try await timed("residualMotion") {
-            guard flowAvailable else { return nil }
-            let asset = AVURLAsset(url: clip.movieURL)
-            guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipImportError.noVideoTrack(clip.movieURL) }
-            let next = try renderer.makeProducer(
-                frames: try FrameSequence.make(asset: asset, track: track), corrections: path.corrections,
-                crop: path.crop, outputSize: OutputSize.size(forCrop: path.crop, longEdge: 720)
-            )
-            return try await ResidualMotionMeter().measure(next: next)
-        }
-
-        let metrics = ClipMetrics(
-            cropRetention: path.cropRetention, residualMotion: residual?.meanPixels, loopSeamRatio: loop?.seamRatio
+        // The same pipeline call the app makes, so the harness verdict IS the pipeline verdict (#20).
+        // Residual motion is the one extra: it needs optical flow, which only the harness has.
+        var residual: ResidualMotionMeter.Result?
+        let result = try await ClipAnalyzer.analyze(
+            movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator,
+            strategy: options.estimator == "registration" ? .chained : .reference,
+            residualMotion: flowAvailable
+                ? { path in
+                    let asset = AVURLAsset(url: clip.movieURL)
+                    guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipImportError.noVideoTrack(clip.movieURL) }
+                    // Residual motion on the stabilized frames at preview size, in playback order.
+                    let next = try renderer.makeProducer(
+                        frames: try FrameSequence.make(asset: asset, track: track), corrections: path.corrections,
+                        crop: path.crop, outputSize: OutputSize.size(forCrop: path.crop, longEdge: 720)
+                    )
+                    residual = try await ResidualMotionMeter().measure(next: next)
+                    return residual?.meanPixels
+                }
+                : nil,
+            onStage: { stage, milliseconds in timings[stage] = milliseconds },
+            renderer: renderer
         )
+        let analysis = result.motion
+        let path = result.path
+        let loop = result.loop
+        let metrics = result.metrics
 
-        let outputs = await timed("export") { await export(clip: clip, path: path, loop: loop, to: outDir, renderer: renderer) }
-        try await timed("contactSheet") {
-            try await ContactSheet.write(
-                movieURL: clip.movieURL, path: path, frameCount: analysis.motion.count,
-                to: outDir.appendingPathComponent("contact-sheet.png"), renderer: renderer
-            )
+        let outputs = options.metricsOnly ? [] : await timed("export") { await export(clip: clip, path: path, loop: loop, to: outDir, renderer: renderer) }
+        if !options.metricsOnly {
+            try await timed("contactSheet") {
+                try await ContactSheet.write(
+                    movieURL: clip.movieURL, path: path, frameCount: analysis.motion.count,
+                    to: outDir.appendingPathComponent("contact-sheet.png"), renderer: renderer
+                )
+            }
         }
 
         var truthRMS: Double?
@@ -301,7 +299,7 @@ enum HarnessRunner {
             },
             residualPairs: residual?.pairs ?? 0, residualSkippedPairs: residual?.skippedPairs ?? 0,
             truthRMSpx: truthRMS, outputs: outputs, timingsMs: timings.mapValues { ($0 * 10).rounded() / 10 },
-            error: nil
+            error: result.unstabilizedReason.map { "not stabilized: \($0)" }
         )
         try write(report, to: outDir.appendingPathComponent("metrics.json"))
         return report
