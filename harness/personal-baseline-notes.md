@@ -29,9 +29,13 @@ Clips passing all three thresholds: **10 of 117**. Estimation: 8 of 6,077 frames
 | clips below 60% crop retention | 37 of 115 (32.2%) | 29 of 117 (24.8%) |
 | clips with no common area | 5 | 2 |
 
-### Caveat: the residual-motion column is not stable across sessions (#72)
+### Caveat: the residual-motion column was measured at a different meter level than the harness now uses (#72)
 
-Crop retention and loop seam are exactly repeatable: re-running 17 of these clips hours later reproduced them to every printed digit. **Residual motion is not.** The same stabilized frames read **0.71x to 0.99x** of the values in this file when measured again (median 0.79x), because the optical-flow meter itself shifted; the stabilization did not. Rescaling this table by that range, the number of clips at or above 1.0 px would be between **17 and 29 of 115** instead of exactly 29, and the median would be between 0.38 and 0.54 px. The conclusions that survive: residual motion is far better than before #61 (3.3 px median), it is high only on the same kinds of clips that fail on crop (subject-dominated, moving background and platform, low light), and clips that look fine are almost all well under 1 px. The exact count of clips over the threshold is not reliable until #72 is resolved.
+Crop retention and loop seam are exactly repeatable and are unaffected. **The residual column was measured with the optical-flow meter at `.medium`.** Since #70 the harness default is `.veryHigh` (the only level that reads a known 0.5 and 1.0 px residual within 20% at 720 px), and it reads lower at sub-pixel levels: re-measuring 17 of these clips at the new level gave **0.71x to 0.99x** of the values here (median 0.79x), and the synthetic median went from 0.118 to 0.070 px. Rescaling this table by that range, the number of clips at or above 1.0 px would be between **17 and 29 of 115** instead of exactly 29, and the median between 0.38 and 0.54 px.
+
+The meter is deterministic: the difference is the setting, not instability. (An earlier version of this note, and #72 as I first filed it, blamed machine state "with identical code". That was wrong; the code was not identical, and the other session found the cause by changing that one line.) The baseline now records which meter level wrote it (#77), but **these personal-fixture numbers have not been re-measured at `.veryHigh`**.
+
+The conclusions that do not depend on the level: residual motion is far better than before #61 (3.3 px median), it is high only on the same kinds of clips that fail on crop (subject-dominated, moving background and platform, low light), and clips that look fine are almost all well under 1 px. The exact count of clips over 1.0 px needs re-measuring.
 
 ## The L1 gate (decision 0002, issue #21)
 
