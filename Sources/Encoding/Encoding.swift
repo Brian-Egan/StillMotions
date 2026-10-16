@@ -1,6 +1,13 @@
 // Encoding — GIF via gifski, video via AVAssetWriter.
 //
-// EMPTY BY DESIGN. The planning session writes no feature code.
+// Implemented so far:
+//
+//   VideoEncoder   HEVC via AVAssetWriter at the source frame rate. Bounce and Once; Loop
+//                  throws (decision 0005). Streams, and writes no loop metadata.
+//   FrameSpool     Disk-backed frame store so Bounce can replay in reverse without holding the
+//                  clip in memory. The GIF encoder (#16) reuses it.
+//
+// Design notes for what is not built yet:
 //
 //   GIF   gifski through its C API, for per-frame palettes and temporal dithering.
 //         ImageIO's GIF encoder is explicitly not used — a single global palette is the
