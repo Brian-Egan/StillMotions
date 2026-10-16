@@ -104,6 +104,31 @@ Superseded by `-create-xcframework`.
 **ImageIO's GIF encoder.** Ruled out by the brief, and correctly: a single global palette
 per GIF is the source of the banding gifski exists to avoid.
 
+## Integration findings (#16)
+
+Facts learned wiring the C API, which the next reader should not have to rediscover:
+
+- **gifski silently downsizes large frames unless told the output size.** With
+  `GifskiSettings.width`/`height` left at 0, the library scales any frame much bigger than about
+  800x600 pixels of area down by an integer factor (`dimensions_for_image` in `src/lib.rs`:
+  factor = round(sqrt(w*h / 480000))). A 1880x1056 frame came out 940x528, which would have turned
+  the Full preset into half size, while Small and Medium were unaffected and so hid it. The encoder
+  therefore creates the gifski handle at the first frame and passes that frame's own width and
+  height.
+- **Frame delay comes from presentation timestamps, in seconds**, not from a per-frame delay
+  argument. Frame n is given PTS `n * centiseconds / 100`, an exact centisecond multiple, and every
+  frame (the last included) is read back from the file as exactly 6, 5 or 4 cs.
+- **Frames must be RGBA**; Core Video's are BGRA, so each frame is permuted with vImage on the way in.
+- **Callbacks must be installed before the first frame is added**, or `gifski_add_frame_*` blocks
+  forever. The write callback runs on another thread, so the file sink takes a lock.
+- **`gifski_finish` must always be called**, including on cancellation and errors, or it leaks.
+- **Looping:** Loop and Bounce write `repeat = 0` (forever); Once writes `repeat = -1`, which
+  emits no NETSCAPE extension at all (parsed from the bytes in the tests).
+- **Quality check (looked at, not just measured):** the same 60 stabilized `moving-subject` frames
+  at 720 px through gifski (quality 90) and through ImageIO's single-palette encoder. In the dark
+  gradient background ImageIO shows faint radial contour streaks (banding); gifski shows a fine
+  dither texture and no contour steps. gifski's file was 703 KB against 1,578 KB.
+
 ## What would change this
 
 - Upstream publishing an official xcframework or SwiftPM package: drops the script.
