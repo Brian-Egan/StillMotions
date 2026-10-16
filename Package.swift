@@ -83,7 +83,9 @@ let package = Package(
         // `tests/fixtures/`. Never create `Tests/`. See docs/ARCHITECTURE.md §8.
         .testTarget(
             name: "PipelineTests",
-            dependencies: ["StillMotionsPipeline"],
+            // HarnessCLI too: SwiftPM lets tests `@testable import` an executable, which is how the
+            // harness's own logic (clip discovery, failure handling) is tested.
+            dependencies: ["StillMotionsPipeline", "HarnessCLI"],
             path: "tests/PipelineTests"
         ),
     ]
