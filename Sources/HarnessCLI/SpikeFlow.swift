@@ -1,13 +1,14 @@
 import CoreImage
 import CoreVideo
 import Foundation
+import StillMotionsPipeline
 import Vision
 import simd
 
-/// Spike-grade optical-flow estimator: `TrackOpticalFlowRequest`, sampled on a grid, fit
-/// with RANSAC. It exists so #10 can measure flow's cost and accuracy. #11 builds the
-/// production `OpticalFlowEstimator` (and decides how it handles masks, failures, and
-/// confidence); nothing here is meant to survive that issue.
+/// Measurement-grade optical-flow estimator for `benchmark-estimators` (#10). It exposes what the
+/// production `OpticalFlowEstimator` (#11) deliberately does not: per-stage timings and
+/// grid-sample masking, which the masked-vs-unmasked comparison needs. The grid fit itself is the
+/// production `AffineRANSAC`.
 struct SpikeFlowEstimator {
     struct Result {
         let transform: simd_float3x3
@@ -54,7 +55,7 @@ struct SpikeFlowEstimator {
         // `FrameMotion.transform` maps reference -> frame, so each grid point q gives the
         // pair (from: q, to: q + flow / flowScale).
         let sampleStart = DispatchTime.now()
-        var pairs: [SpikeAffine.Pair] = []
+        var pairs: [AffineRANSAC.Pair] = []
         pairs.reserveCapacity(Self.gridSize * Self.gridSize)
         for gy in 0..<Self.gridSize {
             for gx in 0..<Self.gridSize {
@@ -78,7 +79,7 @@ struct SpikeFlowEstimator {
         // Inlier threshold scales with image size: ~0.15% of the long edge (about 1 px at
         // 720, 2.9 px at native).
         let threshold = max(width, height) * 0.0015
-        guard let fit = SpikeAffine.ransac(pairs, threshold: threshold) else {
+        guard let fit = AffineRANSAC.fit(pairs, threshold: threshold) else {
             throw SpikeError("could not fit a transform to \(pairs.count) flow samples")
         }
         let fitMs = Self.milliseconds(since: fitStart)
