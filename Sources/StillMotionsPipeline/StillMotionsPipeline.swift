@@ -6,6 +6,7 @@
 // only, never straight to an internal module.
 @_exported import PipelineCore
 @_exported import Import
+@_exported import MotionEstimation
 
 // Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //

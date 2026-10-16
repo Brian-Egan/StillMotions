@@ -169,6 +169,12 @@ public struct Correspondence {
 
 public struct FrameMotion {
     public let index: Int
+    /// Maps the REFERENCE frame's coordinates onto THIS frame's coordinates:
+    /// `pFrame = transform * pReference`. Stabilizing this frame means applying
+    /// `transform.inverse` — that's `WarpToReferenceSolver`'s job (#12), not the
+    /// estimator's. Verified empirically against `VisionRegistrationEstimator` (#9): this
+    /// is the opposite of an earlier draft of this doc, which called `transform` a mapping
+    /// from frame onto reference.
     public let transform: simd_float3x3
     /// Empty when the estimator does not produce correspondences.
     public let correspondences: [Correspondence]
@@ -177,7 +183,12 @@ public struct FrameMotion {
 }
 
 public protocol MotionEstimator {
-    func estimate(frame: CVPixelBuffer, reference: CVPixelBuffer) throws -> FrameMotion
+    // async: Vision's request APIs (ImageProcessingRequest.perform,
+    // TargetedImageRequestHandler.perform) are async throws with no synchronous
+    // equivalent — a synchronous signature here would force every conformer to block a
+    // thread on Vision's dispatch queue. Corrected from a synchronous `throws` in an
+    // earlier draft of this doc; see #9.
+    func estimate(frame: CVPixelBuffer, reference: CVPixelBuffer) async throws -> FrameMotion
 }
 
 public struct CameraPath {
