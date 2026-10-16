@@ -86,20 +86,31 @@ struct ResidualMotionMeter {
     }
 
     /// `next` yields the stabilized frames in playback order.
-    func measure(next: () throws -> CVPixelBuffer?) async throws -> Result {
+    ///
+    /// With a `masker`, samples on a moving subject are dropped from the measurement, matching
+    /// what the stabilization was told to ignore (#19). Without it, the meter votes by majority and
+    /// on a clip where the subject fills most of the frame it measures the SUBJECT's motion, which
+    /// a subject-masked stabilization has deliberately stopped following.
+    func measure(next: () throws -> CVPixelBuffer?, masker: SubjectMasker? = nil) async throws -> Result {
         guard var previous = try next() else { return Result(meanPixels: 0, pairs: 0, skippedPairs: 0) }
         let estimator = OpticalFlowEstimator(configuration: .init(accuracy: accuracy, calibrationShiftFraction: calibrationShiftFraction))
+        var previousMask = try await masker?.mask(for: previous).mask
 
         var sum = 0.0
         var pairs = 0
         var skipped = 0
         while let current = try next() {
             do {
-                let result = try await estimator.estimateWithEvidence(frame: current, reference: previous)
+                let currentMask = try await masker?.mask(for: current).mask
+                let result = try await estimator.estimateWithEvidence(
+                    frame: current, reference: previous, frameMask: currentMask, referenceMask: previousMask
+                )
                 sum += result.inlierMeanDisplacement
                 pairs += 1
+                previousMask = currentMask
             } catch {
                 skipped += 1
+                previousMask = nil
             }
             previous = current // holding it keeps the renderer's buffer pool from reusing it
         }

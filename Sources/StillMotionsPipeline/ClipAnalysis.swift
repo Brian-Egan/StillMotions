@@ -44,6 +44,7 @@ extension ClipAnalyzer {
         estimator: any MotionEstimator,
         strategy: Strategy = .chained,
         solver: any CameraPathSolver = WarpToReferenceSolver(),
+        masker: SubjectMasker? = nil,
         residualMotion: ((CameraPath) async throws -> Double?)? = nil,
         onStage: ((String, Double) -> Void)? = nil,
         renderer: StabilizedRenderer = StabilizedRenderer()
@@ -60,7 +61,7 @@ extension ClipAnalyzer {
         let motion = try await timed("estimate") {
             try await estimateMotion(
                 movieURL: movieURL, referenceIndex: referenceIndex, estimator: estimator,
-                strategy: strategy, renderer: renderer
+                strategy: strategy, masker: masker, renderer: renderer
             )
         }
 

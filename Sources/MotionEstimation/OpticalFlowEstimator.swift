@@ -104,10 +104,15 @@ public final class OpticalFlowEstimator: MotionEstimator, @unchecked Sendable {
         try await estimateWithEvidence(frame: frame, reference: reference).motion
     }
 
-    public func estimateWithEvidence(frame: CVPixelBuffer, reference: CVPixelBuffer) async throws -> Estimate {
+    /// `frameMask` and `referenceMask` drop grid samples that land on a moving subject in the
+    /// frame or in the reference (#19). A dropped sample is not returned as a correspondence and
+    /// does not count toward `inlierRatio`. With no masks, nothing is dropped.
+    public func estimateWithEvidence(
+        frame: CVPixelBuffer, reference: CVPixelBuffer, frameMask: SubjectMask? = nil, referenceMask: SubjectMask? = nil
+    ) async throws -> Estimate {
         await gate.acquire()
         do {
-            let result = try await run(frame: frame, reference: reference)
+            let result = try await run(frame: frame, reference: reference, frameMask: frameMask, referenceMask: referenceMask)
             await gate.release()
             return result
         } catch {
@@ -118,7 +123,7 @@ public final class OpticalFlowEstimator: MotionEstimator, @unchecked Sendable {
 
     // MARK: - Implementation
 
-    private func run(frame: CVPixelBuffer, reference: CVPixelBuffer) async throws -> Estimate {
+    private func run(frame: CVPixelBuffer, reference: CVPixelBuffer, frameMask: SubjectMask?, referenceMask: SubjectMask?) async throws -> Estimate {
         let width = CVPixelBufferGetWidth(reference)
         let height = CVPixelBufferGetHeight(reference)
         guard width == CVPixelBufferGetWidth(frame), height == CVPixelBufferGetHeight(frame) else {
@@ -128,7 +133,14 @@ public final class OpticalFlowEstimator: MotionEstimator, @unchecked Sendable {
 
         // Sample inside this scope so the observation (a full-resolution float field) is
         // released before the fit, keeping peak memory to one field.
-        let pairs = try await sampledPairs(frame: frame, reference: reference, width: width, height: height, flowScale: scale)
+        var pairs = try await sampledPairs(frame: frame, reference: reference, width: width, height: height, flowScale: scale)
+        if frameMask != nil || referenceMask != nil {
+            pairs = pairs.filter { pair in
+                if let referenceMask, referenceMask.contains(nx: pair.from.x / Double(width), ny: pair.from.y / Double(height)) { return false }
+                if let frameMask, frameMask.contains(nx: pair.to.x / Double(width), ny: pair.to.y / Double(height)) { return false }
+                return true
+            }
+        }
 
         let threshold = Double(max(width, height)) * configuration.inlierThresholdFraction
         guard let fit = AffineRANSAC.fit(pairs, threshold: threshold, iterations: configuration.ransacIterations) else {
