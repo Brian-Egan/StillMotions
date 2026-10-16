@@ -1,3 +1,4 @@
+import Photos
 import SwiftUI
 import StillMotionsPipeline
 
@@ -16,10 +17,18 @@ struct EditorView: View {
         return "\(Int(size.width)) x \(Int(size.height))"
     }
 
+    /// The asset the gallery handed over, looked up by its PhotoKit identifier.
+    private var takenDate: String {
+        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject
+        return asset?.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "unknown"
+    }
+
     var body: some View {
         List {
             Section("Editor placeholder") {
                 LabeledContent("Asset", value: assetID)
+                LabeledContent("Taken", value: takenDate)
+                    .accessibilityIdentifier("editorTakenDate")
             }
             Section("From the pipeline package") {
                 LabeledContent("Default preset", value: settings.values.sizePreset.rawValue.capitalized)
