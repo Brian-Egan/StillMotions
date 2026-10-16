@@ -5,6 +5,48 @@ import StillMotionsPipeline
 import Vision
 import simd
 
+/// Whether Vision's optical flow runs on this machine at all.
+///
+/// It does not on GitHub's hosted macOS runners: the request fails with `memFullErr` ("failed to
+/// analyze motion flow"), while registration works. Anything built on flow therefore cannot run
+/// in CI, so the harness probes once and records residual motion as "not measured" instead of
+/// failing the whole run. Locally it is measured, so a residual-motion regression is still caught
+/// before a push (PRD R-23: CI guards correctness, local runs guard quality).
+enum FlowAvailability {
+    /// Set `STILLMOTIONS_SIMULATE_NO_FLOW=1` to take the no-flow path on a machine that has flow,
+    /// which is how the CI behaviour is checked locally.
+    static func probe() async -> Bool {
+        if ProcessInfo.processInfo.environment["STILLMOTIONS_SIMULATE_NO_FLOW"] != nil { return false }
+        func buffer(shift: Int) -> CVPixelBuffer? {
+            var out: CVPixelBuffer?
+            CVPixelBufferCreate(nil, 128, 128, kCVPixelFormatType_32BGRA, nil, &out)
+            guard let buffer = out else { return nil }
+            CVPixelBufferLockBaseAddress(buffer, [])
+            defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+            let base = CVPixelBufferGetBaseAddress(buffer)!.assumingMemoryBound(to: UInt8.self)
+            let stride = CVPixelBufferGetBytesPerRow(buffer)
+            for y in 0..<128 {
+                for x in 0..<128 {
+                    // Deterministic texture, shifted horizontally.
+                    let v = UInt8(truncatingIfNeeded: ((x + shift) &* 2654435761 &+ y &* 40503) >> 7)
+                    let p = base + y * stride + x * 4
+                    p[0] = v; p[1] = v &+ 40; p[2] = v &+ 80; p[3] = 255
+                }
+            }
+            return buffer
+        }
+        guard let a = buffer(shift: 0), let b = buffer(shift: 3) else { return false }
+        do {
+            let request = TrackOpticalFlowRequest()
+            request.computationAccuracy = .low
+            _ = try await TargetedImageRequestHandler(source: b, target: a).perform(request)
+            return true
+        } catch {
+            return false
+        }
+    }
+}
+
 /// The residual-motion metric (PRD §1.2): mean displacement of background features between
 /// consecutive OUTPUT frames, in pixels at the size of the frames measured.
 ///

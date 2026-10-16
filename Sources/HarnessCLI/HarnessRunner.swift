@@ -107,7 +107,8 @@ enum HarnessRunner {
         let clipCount: Int
         let passedCount: Int
         let medianCropRetention: Double
-        let medianResidualMotionPx: Double
+        /// `nil` when residual motion was not measured (no optical flow on this machine).
+        let medianResidualMotionPx: Double?
         let medianLoopSeamRatio: Double
         let regressionProblems: [String]
         let clips: [ClipReport]
@@ -126,16 +127,26 @@ enum HarnessRunner {
         let clips = try ClipLocator.find(in: options.fixtures)
         guard !clips.isEmpty else { throw SpikeError("no .mov clips found in \(options.fixtures.path)") }
 
+        let flowAvailable = await FlowAvailability.probe()
+        if options.estimator == "flow", !flowAvailable {
+            throw SpikeError("--estimator flow: Vision optical flow does not run on this machine (it fails on GitHub-hosted runners)")
+        }
+        if options.updateBaseline, !flowAvailable {
+            throw SpikeError("--update-baseline needs residual motion, and Vision optical flow does not run on this machine. Writing a baseline without it would silently drop the residual-motion check; run this on a Mac.")
+        }
+        if !flowAvailable {
+            print("note: Vision optical flow is unavailable on this machine, so residual motion is NOT measured (crop retention and loop seam still are)")
+        }
         let estimator: any MotionEstimator = options.estimator == "flow" ? FlowMotionEstimator() : VisionRegistrationEstimator()
         var reports: [ClipReport] = []
         for clip in clips {
             print("== \(clip.name)")
-            let report = try await process(clip, options: options, estimator: estimator)
+            let report = try await process(clip, options: options, estimator: estimator, flowAvailable: flowAvailable)
             reports.append(report)
             let m = report.metrics
             print(String(
-                format: "   crop %.1f%%  residual %.3f px  seam %@  %@  (%.1f s)",
-                m.cropRetention * 100, m.residualMotion ?? 0,
+                format: "   crop %.1f%%  residual %@  seam %@  %@  (%.1f s)",
+                m.cropRetention * 100, m.residualMotion.map { String(format: "%.3f px", $0) } ?? "not measured",
                 m.loopSeamRatio.map { String(format: "%.2fx", $0) } ?? "n/a",
                 m.passed ? "PASS" : "FAIL: " + report.failures.joined(separator: ", "),
                 (report.timingsMs["total"] ?? 0) / 1000
@@ -160,15 +171,15 @@ enum HarnessRunner {
             estimator: options.estimator, solver: options.solver,
             clipCount: reports.count, passedCount: reports.filter { $0.metrics.passed }.count,
             medianCropRetention: RegressionCheck.median(reports.map(\.metrics.cropRetention)),
-            medianResidualMotionPx: RegressionCheck.median(reports.compactMap(\.metrics.residualMotion)),
+            medianResidualMotionPx: reports.contains { $0.metrics.residualMotion != nil } ? RegressionCheck.median(reports.compactMap(\.metrics.residualMotion)) : nil,
             medianLoopSeamRatio: RegressionCheck.median(reports.compactMap(\.metrics.loopSeamRatio)),
             regressionProblems: problems, clips: reports
         )
         try write(summary, to: options.out.appendingPathComponent("summary.json"))
         print(String(
-            format: "\n%d clips, %d pass all three thresholds. median crop %.1f%%, residual %.3f px, seam %.2fx",
+            format: "\n%d clips, %d pass every measured threshold. median crop %.1f%%, residual %@, seam %.2fx",
             summary.clipCount, summary.passedCount, summary.medianCropRetention * 100,
-            summary.medianResidualMotionPx, summary.medianLoopSeamRatio
+            summary.medianResidualMotionPx.map { String(format: "%.3f px", $0) } ?? "not measured", summary.medianLoopSeamRatio
         ))
         if problems.isEmpty {
             if options.baseline != nil, !options.updateBaseline { print("REGRESSION CHECK PASSED against \(options.baseline!.path)") }
@@ -181,7 +192,7 @@ enum HarnessRunner {
 
     // MARK: - One clip
 
-    static func process(_ clip: ClipInput, options: Options, estimator: any MotionEstimator) async throws -> ClipReport {
+    static func process(_ clip: ClipInput, options: Options, estimator: any MotionEstimator, flowAvailable: Bool) async throws -> ClipReport {
         let outDir = options.out.appendingPathComponent(clip.name, isDirectory: true)
         try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
         let renderer = StabilizedRenderer()
@@ -211,7 +222,8 @@ enum HarnessRunner {
         }
 
         // Residual motion on the stabilized frames at preview size, in playback order.
-        let residual = try await timed("residualMotion") {
+        let residual: ResidualMotionMeter.Result? = try await timed("residualMotion") {
+            guard flowAvailable else { return nil }
             let asset = AVURLAsset(url: clip.movieURL)
             guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipImportError.noVideoTrack(clip.movieURL) }
             let next = try renderer.makeProducer(
@@ -222,7 +234,7 @@ enum HarnessRunner {
         }
 
         let metrics = ClipMetrics(
-            cropRetention: path.cropRetention, residualMotion: residual.meanPixels, loopSeamRatio: loop?.seamRatio
+            cropRetention: path.cropRetention, residualMotion: residual?.meanPixels, loopSeamRatio: loop?.seamRatio
         )
 
         let outputs = await timed("export") { await export(clip: clip, path: path, loop: loop, to: outDir, renderer: renderer) }
@@ -258,7 +270,7 @@ enum HarnessRunner {
                     seamRatioBeforeCrossfade: $0.seamRatioBeforeCrossfade, seamRatio: $0.seamRatio
                 )
             },
-            residualPairs: residual.pairs, residualSkippedPairs: residual.skippedPairs,
+            residualPairs: residual?.pairs ?? 0, residualSkippedPairs: residual?.skippedPairs ?? 0,
             truthRMSpx: truthRMS, outputs: outputs, timingsMs: timings.mapValues { ($0 * 10).rounded() / 10 }
         )
         try write(report, to: outDir.appendingPathComponent("metrics.json"))
