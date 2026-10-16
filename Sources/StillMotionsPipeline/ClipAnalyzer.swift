@@ -103,7 +103,7 @@ public enum ClipAnalyzer {
                 return try await flow.estimateWithEvidence(frame: frame, reference: reference, frameMask: frameMask, referenceMask: referenceMask).motion
             }
             let both = frameMask.union(referenceMask)
-            return try await estimator.estimate(frame: try both.blanking(frame), reference: try both.blanking(reference))
+            return try await estimator.estimate(frame: try both.inpainting(frame), reference: try both.inpainting(reference))
         }
 
         switch strategy {
