@@ -1,4 +1,5 @@
 import Photos
+import StillMotionsPipeline
 import SwiftUI
 
 /// The grid of Live Photos, newest first. Tapping one opens the editor with that asset.
@@ -96,12 +97,17 @@ private struct RequestCountsOverlay: View {
 
     var body: some View {
         #if DEBUG
-        Text("thumbnails: started \(loader.startedCount), finished \(loader.finishedCount), cancelled \(loader.cancelledCount), active \(loader.activeCount)")
-            .font(.caption2.monospacedDigit())
-            .padding(6)
-            .background(.ultraThinMaterial, in: Capsule())
-            .padding(.bottom, 4)
-            .accessibilityIdentifier("requestCounts")
+        VStack(spacing: 2) {
+            Text("thumbnails: started \(loader.startedCount), finished \(loader.finishedCount), cancelled \(loader.cancelledCount), active \(loader.activeCount)")
+                .accessibilityIdentifier("requestCounts")
+            // Folders of extracted Live Photo files still on disk; must be 0 once an editor closes.
+            Text("staged folders \(LivePhotoStager().stagedFolderCount()), memory \(MemoryFootprint.megabytes) MB")
+                .accessibilityIdentifier("stagingCounts")
+        }
+        .font(.caption2.monospacedDigit())
+        .padding(6)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .padding(.bottom, 4)
         #else
         EmptyView()
         #endif
