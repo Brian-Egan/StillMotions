@@ -5,169 +5,131 @@ import simd
 
 /// The "Smooth" stabilization mode: each frame is moved toward a low-passed copy of the path the
 /// camera actually took, so the shake goes and the slow drift stays. The crop is whatever is valid in
-/// every corrected frame (`CommonCrop`), which is larger than Locked's because the frames move less far
-/// from where they were shot.
+/// every corrected frame (`CommonCrop`), which is larger than Locked's because the frames move less
+/// far from where they were shot.
 ///
 /// For each frame the estimator gives T, mapping reference coordinates onto that frame (see
-/// `FrameMotion`). Each T is reduced to a SIMILARITY about the frame center (translation, rotation, and
-/// log scale), those four numbers are Gaussian-smoothed over time, and the frame is moved by the
-/// difference between its smoothed pose and its own:
+/// `FrameMotion`). T is the camera's pose. The virtual camera takes S, a Gaussian-smoothed copy of
+/// those poses, and each frame is moved to where that camera would show it:
 ///
-///     correction = pose(smoothed) * pose(T)^-1
+///     correction = S * T^-1
 ///
-/// Locked is a still camera (the target pose is the reference's) and Off is the camera as shot (the
-/// target pose is T), so this sits between them.
+/// Locked is S = identity (a still camera) and Off is S = T (the camera as shot), so this sits between
+/// them.
 ///
-/// Two choices came from running it on 117 real clips (decision 0011):
+/// **Smoothing the matrices, not a decomposition of them.** The smoothing is applied to the entries of T
+/// directly. That is a linear filter, so where any point of the scene lands is filtered exactly as a
+/// plain Gaussian would filter its path, and it cannot add jitter. A first version split each T into
+/// shift, rotation and scale and smoothed those separately, and on 117 real clips it made about half
+/// of them jitterier than the footage as shot: estimator noise is correlated across those numbers, and
+/// smoothing them independently breaks the cancellation (decision 0011).
 ///
-/// 1. **Only the similarity is corrected.** A first version corrected with the full `T^-1`, so any shear or
-///    perspective the estimator found was applied too. Where those estimates are noise (the early frames of
-///    some chained estimates have scale 0.3 and heavy shear) the smoothed similarity no longer matched the
-///    frame, and the common crop collapsed on clips Locked handled at 85%.
-/// 2. **Each frame's move is capped.** The smoothed pose may differ from the frame's own by at most a
-///    fraction of the frame in translation, a few degrees of rotation, and a few percent of scale. A frame
-///    whose estimate is garbage is then left close to as shot instead of being dragged far, which also
-///    gives Smooth a floor on how much of the frame it can cost.
+/// **A limit on how far any frame moves.** No corner of any frame is moved by more than
+/// `maxMoveFraction` of the frame's diagonal. Where an estimate is garbage (some chained estimates start
+/// with scale 0.3 and heavy shear) the smoothed path can be far from the frame, and without a limit the
+/// common crop collapses on clips Locked handles at 85%. The limit is soft, `limit * tanh(move / limit)`
+/// applied to the whole correction, so it is nearly invisible for ordinary moves and, being continuous,
+/// cannot make a hovering path switch on and off from frame to frame (a hard clamp did, and that was
+/// itself jitter).
 ///
 /// This is deliberately not the L1-optimal solver of decision 0002 / issue #21: a Gaussian over the path is
-/// a few dozen lines, has a few numbers to tune, and needs no optimizer.
+/// a few dozen lines, has two numbers to tune, and needs no optimizer.
 public struct SmoothedPathSolver: CameraPathSolver {
     /// Standard deviation of the Gaussian, in frames. A clip at about 29 fps with sigma 8 keeps
     /// motion slower than roughly half a hertz and removes what is faster.
     public var sigmaFrames: Double
-    /// The most a frame may be moved sideways or up and down, as a fraction of the frame's width and height.
-    public var maxShiftFraction: Double
-    /// The most a frame may be rotated, in radians.
-    public var maxRotation: Double
-    /// The most a frame may be scaled, as a natural log (0.05 is about 5%).
-    public var maxLogScale: Double
+    /// The most any corner of any frame may be moved, as a fraction of the frame's diagonal.
+    public var maxMoveFraction: Double
 
     public static let defaultSigmaFrames = 8.0
-    public static let defaultMaxShiftFraction = 0.05
-    public static let defaultMaxRotation = 0.03
-    public static let defaultMaxLogScale = 0.05
+    public static let defaultMaxMoveFraction = 0.06
 
     public init(
         sigmaFrames: Double = SmoothedPathSolver.defaultSigmaFrames,
-        maxShiftFraction: Double = SmoothedPathSolver.defaultMaxShiftFraction,
-        maxRotation: Double = SmoothedPathSolver.defaultMaxRotation,
-        maxLogScale: Double = SmoothedPathSolver.defaultMaxLogScale
+        maxMoveFraction: Double = SmoothedPathSolver.defaultMaxMoveFraction
     ) {
         self.sigmaFrames = sigmaFrames
-        self.maxShiftFraction = maxShiftFraction
-        self.maxRotation = maxRotation
-        self.maxLogScale = maxLogScale
+        self.maxMoveFraction = maxMoveFraction
     }
 
     public func solve(motion: [FrameMotion], frameSize: CGSize) throws -> CameraPath {
         guard !motion.isEmpty else { throw CameraPathError.noMotion }
         guard frameSize.width > 0, frameSize.height > 0 else { throw CameraPathError.invalidFrameSize(frameSize) }
 
-        let center = SIMD2<Double>(Double(frameSize.width) / 2, Double(frameSize.height) / 2)
-        var poses: [Pose] = []
+        var poses: [simd_double3x3] = []
         for frame in motion {
             let determinant = frame.transform.determinant
-            guard determinant.isFinite, abs(determinant) > 1e-9 else {
+            guard determinant.isFinite, abs(determinant) > 1e-9, frame.transform[2][2] != 0 else {
                 throw CameraPathError.singularTransform(frameIndex: frame.index)
             }
-            poses.append(Pose(frame.transform, aboutCenter: center))
+            poses.append(Self.normalized(frame.transform))
         }
 
         let smoothed = Self.smooth(poses, sigma: sigmaFrames)
-        let maxShift = SIMD2(maxShiftFraction * Double(frameSize.width), maxShiftFraction * Double(frameSize.height))
-        let corrections = zip(smoothed, poses).map { target, own in
-            // The move that takes the frame from its own pose to the smoothed one, as a similarity
-            // about the center, then limited: by how far the CENTER moves, how much the frame turns,
-            // and how much it is scaled. These are limits on the actual move, not on the difference
-            // between two poses (which interact when a pose is large).
-            let move = Pose(target.matrix(aboutCenter: center) * own.matrix(aboutCenter: center).inverse, aboutCenter: center)
-            return move.clamped(maxShift: maxShift, maxRotation: maxRotation, maxLogScale: maxLogScale).matrix(aboutCenter: center)
+        let width = Double(frameSize.width), height = Double(frameSize.height)
+        let limit = maxMoveFraction * (width * width + height * height).squareRoot()
+        let corners: [SIMD2<Double>] = [SIMD2(0, 0), SIMD2(width, 0), SIMD2(width, height), SIMD2(0, height)]
+
+        let corrections: [simd_float3x3] = zip(smoothed, poses).map { target, own in
+            let move = target * own.inverse
+            let limited = Self.limiting(move, corners: corners, limit: limit)
+            return simd_float3x3(
+                columns: (
+                    SIMD3<Float>(Float(limited[0][0]), Float(limited[0][1]), Float(limited[0][2])),
+                    SIMD3<Float>(Float(limited[1][0]), Float(limited[1][1]), Float(limited[1][2])),
+                    SIMD3<Float>(Float(limited[2][0]), Float(limited[2][1]), Float(limited[2][2]))
+                )
+            )
         }
         let crop = try CommonCrop.largest(corrections: corrections, frameIndices: motion.map(\.index), frameSize: frameSize)
         let scale = Double(crop.width) / Double(frameSize.width)
         return CameraPath(corrections: corrections, crop: crop, cropRetention: scale * scale)
     }
 
-    /// A camera pose reduced to a similarity about the frame center.
-    struct Pose {
-        var tx: Double
-        var ty: Double
-        var rotation: Double
-        var logScale: Double
+    /// `transform` as a double-precision matrix scaled so its bottom-right entry is 1.
+    static func normalized(_ transform: simd_float3x3) -> simd_double3x3 {
+        let w = Double(transform[2][2])
+        return simd_double3x3(columns: (
+            SIMD3<Double>(Double(transform[0][0]), Double(transform[0][1]), Double(transform[0][2])) / w,
+            SIMD3<Double>(Double(transform[1][0]), Double(transform[1][1]), Double(transform[1][2])) / w,
+            SIMD3<Double>(Double(transform[2][0]), Double(transform[2][1]), Double(transform[2][2])) / w
+        ))
+    }
 
-        init(tx: Double, ty: Double, rotation: Double, logScale: Double) {
-            self.tx = tx; self.ty = ty; self.rotation = rotation; self.logScale = logScale
-        }
-
-        /// Reads the pose out of `transform`, with coordinates taken relative to `center`.
-        init(_ transform: simd_float3x3, aboutCenter center: SIMD2<Double>) {
-            // entry(row, column); simd matrices are column-major: m[column][row].
-            func entry(_ row: Int, _ column: Int) -> Double { Double(transform[column][row]) }
-            let w = entry(2, 2) == 0 ? 1 : entry(2, 2)
-            let a = entry(0, 0) / w, b = entry(0, 1) / w, c = entry(1, 0) / w, d = entry(1, 1) / w
-            let tx = entry(0, 2) / w, ty = entry(1, 2) / w
-            // Center-relative translation: the image of the center point, minus the center.
-            let moved = SIMD2<Double>(a * center.x + b * center.y + tx, c * center.x + d * center.y + ty)
-            self.tx = moved.x - center.x
-            self.ty = moved.y - center.y
-            let determinant = a * d - b * c
-            logScale = 0.5 * log(max(abs(determinant), 1e-12))
-            // Rotation of the first column; for a similarity this is the rotation exactly.
-            rotation = atan2(c, a)
-        }
-
-        /// Each of the four numbers held within its limit (symmetric about zero). Used on a MOVE, so
-        /// this bounds how far the center goes, how much the frame turns and how much it is scaled.
-        func clamped(maxShift: SIMD2<Double>, maxRotation: Double, maxLogScale: Double) -> Pose {
-            func limited(_ value: Double, _ limit: Double) -> Double { min(max(value, -limit), limit) }
-            return Pose(
-                tx: limited(tx, maxShift.x), ty: limited(ty, maxShift.y),
-                rotation: limited(rotation, maxRotation), logScale: limited(logScale, maxLogScale)
-            )
-        }
-
-        /// The pose as a matrix in image coordinates, rotating and scaling about `center`.
-        func matrix(aboutCenter center: SIMD2<Double>) -> simd_float3x3 {
-            let s = exp(logScale), cosine = cos(rotation) * s, sine = sin(rotation) * s
-            // Linear part [[cosine, -sine], [sine, cosine]] about the center, then moved by (tx, ty).
-            let offsetX = center.x - (cosine * center.x - sine * center.y) + tx
-            let offsetY = center.y - (sine * center.x + cosine * center.y) + ty
-            return simd_float3x3(columns: (
-                SIMD3<Float>(Float(cosine), Float(sine), 0),
-                SIMD3<Float>(Float(-sine), Float(cosine), 0),
-                SIMD3<Float>(Float(offsetX), Float(offsetY), 1)
-            ))
+    /// Gaussian smoothing, entry by entry, over frame index. At the ends the kernel is cut off and
+    /// renormalized, so the first and last frames are averaged from the frames that exist rather than
+    /// pulled toward zero. A convex average, so a constant path stays exactly constant.
+    static func smooth(_ matrices: [simd_double3x3], sigma: Double) -> [simd_double3x3] {
+        guard matrices.count > 1, sigma > 0 else { return matrices }
+        let radius = max(1, Int((3 * sigma).rounded(.up)))
+        let kernel = (-radius...radius).map { exp(-0.5 * Double($0 * $0) / (sigma * sigma)) }
+        return (0..<matrices.count).map { i in
+            var sum = simd_double3x3(0)
+            var weight = 0.0
+            for k in -radius...radius {
+                let j = i + k
+                guard j >= 0, j < matrices.count else { continue }
+                let w = kernel[k + radius]
+                sum += matrices[j] * w
+                weight += w
+            }
+            return sum * (1 / weight)
         }
     }
 
-    /// Gaussian smoothing over frame index. At the ends the kernel is cut off and renormalized, so
-    /// the first and last frames are averaged from the frames that exist rather than pulled toward
-    /// zero. Rotation is unwrapped first so a path crossing +/-pi does not smooth through zero.
-    static func smooth(_ poses: [Pose], sigma: Double) -> [Pose] {
-        guard poses.count > 1, sigma > 0 else { return poses }
-        var rotations = poses.map(\.rotation)
-        for i in 1..<rotations.count {
-            while rotations[i] - rotations[i - 1] > .pi { rotations[i] -= 2 * .pi }
-            while rotations[i] - rotations[i - 1] < -.pi { rotations[i] += 2 * .pi }
+    /// `move` with its distance from the identity eased so that no corner moves by `limit` or more:
+    /// `identity + g * (move - identity)`, with `g` chosen so the largest corner move `m` becomes
+    /// `limit * tanh(m / limit)`. For `m` well under `limit`, `g` is almost 1.
+    static func limiting(_ move: simd_double3x3, corners: [SIMD2<Double>], limit: Double) -> simd_double3x3 {
+        guard limit > 0 else { return matrix_identity_double3x3 }
+        var largest = 0.0
+        for corner in corners {
+            let p = move * SIMD3<Double>(corner.x, corner.y, 1)
+            guard abs(p.z) > 1e-9 else { return matrix_identity_double3x3 }
+            largest = max(largest, simd_distance(SIMD2(p.x / p.z, p.y / p.z), corner))
         }
-        let radius = max(1, Int((3 * sigma).rounded(.up)))
-        let kernel = (-radius...radius).map { exp(-0.5 * Double($0 * $0) / (sigma * sigma)) }
-
-        func filtered(_ values: [Double]) -> [Double] {
-            (0..<values.count).map { i in
-                var sum = 0.0, weight = 0.0
-                for k in -radius...radius {
-                    let j = i + k
-                    guard j >= 0, j < values.count else { continue }
-                    let w = kernel[k + radius]
-                    sum += w * values[j]
-                    weight += w
-                }
-                return sum / weight
-            }
-        }
-        let tx = filtered(poses.map(\.tx)), ty = filtered(poses.map(\.ty))
-        let rotation = filtered(rotations), logScale = filtered(poses.map(\.logScale))
-        return (0..<poses.count).map { Pose(tx: tx[$0], ty: ty[$0], rotation: rotation[$0], logScale: logScale[$0]) }
+        guard largest > 1e-12 else { return move }
+        let g = limit * tanh(largest / limit) / largest
+        return matrix_identity_double3x3 + (move - matrix_identity_double3x3) * g
     }
 }

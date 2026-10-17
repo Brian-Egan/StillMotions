@@ -88,48 +88,63 @@ final class StabilizationModeTests: XCTestCase {
 
     /// The case that broke the first version on real footage: the first frames of a chained estimate
     /// came back with scale about 0.3 and heavy shear (garbage). Locked shrugs it off, because a
-    /// wildly zoomed-out frame warps to a huge quad that still covers the crop. Smooth, which keeps
-    /// pose and so keeps the garbage, collapsed the crop. Capping each frame's move bounds the damage.
+    /// wildly zoomed-out frame warps to a huge quad that still covers the crop. A smoother that trusts
+    /// the estimates dragged those frames far and collapsed the crop. The limit bounds the damage.
     func testFramesWithGarbageEstimatesDoNotCollapseSmoothsCrop() throws {
         var motion = Self.shakyDriftingMotion(frames: 60)
         let garbage = simd_float3x3(columns: (SIMD3<Float>(0.28, -0.11, 0), SIMD3<Float>(-0.07, 0.35, 0), SIMD3<Float>(590, 430, 0.99)))
         for i in 0..<20 {
             motion[i] = FrameMotion(index: i, transform: garbage * Self.translation(Double(i) * 3, 0))
         }
-        let locked = try WarpToReferenceSolver().solve(motion: motion, frameSize: Self.frameSize)
-        let capped = try SmoothedPathSolver().solve(motion: motion, frameSize: Self.frameSize)
-        XCTAssertGreaterThan(capped.cropRetention, 0.5, "Smooth must keep a usable crop through garbage frames (kept \(capped.cropRetention), Locked \(locked.cropRetention))")
-
-        // And no frame is moved by more than the caps, wherever the estimate says it should go.
         let solver = SmoothedPathSolver()
-        let center = SIMD3<Float>(Float(Self.frameSize.width) / 2, Float(Self.frameSize.height) / 2, 1)
-        for correction in capped.corrections {
-            let moved = correction * center
-            let shift = SIMD2<Double>(Double(moved.x / moved.z - center.x), Double(moved.y / moved.z - center.y))
-            XCTAssertLessThanOrEqual(abs(shift.x), solver.maxShiftFraction * Double(Self.frameSize.width) + 0.01, "horizontal move")
-            XCTAssertLessThanOrEqual(abs(shift.y), solver.maxShiftFraction * Double(Self.frameSize.height) + 0.01, "vertical move")
+        let path = try solver.solve(motion: motion, frameSize: Self.frameSize)
+        XCTAssertGreaterThan(path.cropRetention, 0.5, "Smooth must keep a usable crop through garbage frames (kept \(path.cropRetention))")
+
+        // And no corner of any frame moves by more than the limit, wherever the estimate says it should go.
+        let w = Double(Self.frameSize.width), h = Double(Self.frameSize.height)
+        let limit = solver.maxMoveFraction * (w * w + h * h).squareRoot()
+        for correction in path.corrections {
+            for corner in [SIMD2(0.0, 0.0), SIMD2(w, 0), SIMD2(w, h), SIMD2(0, h)] {
+                let p = correction * SIMD3<Float>(Float(corner.x), Float(corner.y), 1)
+                let moved = simd_distance(SIMD2(Double(p.x / p.z), Double(p.y / p.z)), corner)
+                XCTAssertLessThan(moved, limit + 0.01, "a corner moved \(moved) px; the limit is \(limit)")
+            }
         }
     }
 
-    func testTheCapsAreWhatKeepsSmoothSafe() throws {
+    func testTheLimitIsWhatKeepsSmoothSafe() throws {
         var motion = Self.shakyDriftingMotion(frames: 60)
         let garbage = simd_float3x3(columns: (SIMD3<Float>(0.28, -0.11, 0), SIMD3<Float>(-0.07, 0.35, 0), SIMD3<Float>(590, 430, 0.99)))
         for i in 0..<20 { motion[i] = FrameMotion(index: i, transform: garbage) }
-        let capped = try SmoothedPathSolver().solve(motion: motion, frameSize: Self.frameSize)
-        let uncapped = try? SmoothedPathSolver(maxShiftFraction: 100, maxRotation: 100, maxLogScale: 100).solve(motion: motion, frameSize: Self.frameSize)
-        if let uncapped {
-            XCTAssertGreaterThan(capped.cropRetention, uncapped.cropRetention, "without the caps the garbage frames are dragged and cost crop")
-        } // else: uncapped found no common area at all, which makes the same point more strongly
+        let limited = try SmoothedPathSolver().solve(motion: motion, frameSize: Self.frameSize)
+        let unlimited = try? SmoothedPathSolver(maxMoveFraction: 1000).solve(motion: motion, frameSize: Self.frameSize)
+        if let unlimited {
+            XCTAssertGreaterThan(limited.cropRetention, unlimited.cropRetention, "without the limit the garbage frames are dragged and cost crop")
+        } // else: unlimited found no common area at all, which makes the same point more strongly
     }
 
-    func testClampedStopsAtTheLimitsAndLeavesSmallMovesAlone() {
-        let big = SmoothedPathSolver.Pose(tx: 100, ty: -100, rotation: 1, logScale: -1)
-        let capped = big.clamped(maxShift: SIMD2(10, 20), maxRotation: 0.1, maxLogScale: 0.2)
-        XCTAssertEqual(capped.tx, 10); XCTAssertEqual(capped.ty, -20)
-        XCTAssertEqual(capped.rotation, 0.1); XCTAssertEqual(capped.logScale, -0.2)
-        let small = SmoothedPathSolver.Pose(tx: 3, ty: -2, rotation: 0.05, logScale: 0.1)
-        let same = small.clamped(maxShift: SIMD2(10, 20), maxRotation: 0.1, maxLogScale: 0.2)
-        XCTAssertEqual(same.tx, 3); XCTAssertEqual(same.ty, -2); XCTAssertEqual(same.rotation, 0.05); XCTAssertEqual(same.logScale, 0.1)
+    func testSoftLimitApproachesTheLimitSmoothlyAndLeavesSmallMovesAlone() {
+        let w = 960.0, h = 540.0
+        let corners = [SIMD2(0.0, 0.0), SIMD2(w, 0), SIMD2(w, h), SIMD2(0, h)]
+        func translated(_ x: Double) -> simd_double3x3 {
+            simd_double3x3(columns: (SIMD3(1, 0, 0), SIMD3(0, 1, 0), SIMD3(x, 0, 1)))
+        }
+        func shift(_ move: simd_double3x3) -> Double {
+            let p = move * SIMD3<Double>(100, 100, 1)
+            return p.x / p.z - 100
+        }
+        // A huge move comes out at, but never past, the limit, in the same direction.
+        XCTAssertEqual(shift(SmoothedPathSolver.limiting(translated(5000), corners: corners, limit: 50)), 50, accuracy: 1e-6)
+        XCTAssertEqual(shift(SmoothedPathSolver.limiting(translated(-5000), corners: corners, limit: 50)), -50, accuracy: 1e-6)
+        // A move a tenth of the limit is changed by under one percent.
+        XCTAssertEqual(shift(SmoothedPathSolver.limiting(translated(5), corners: corners, limit: 50)), 5, accuracy: 0.05)
+        // It never jumps: a move just under the limit lands next to one just over it.
+        let below = shift(SmoothedPathSolver.limiting(translated(49.9), corners: corners, limit: 50))
+        let above = shift(SmoothedPathSolver.limiting(translated(50.1), corners: corners, limit: 50))
+        XCTAssertEqual(below, above, accuracy: 0.5, "a hard clamp would have a corner here; this must be continuous")
+        XCTAssertLessThan(above, 50)
+        // The identity is untouched.
+        XCTAssertEqual(SmoothedPathSolver.limiting(matrix_identity_double3x3, corners: corners, limit: 50), matrix_identity_double3x3)
     }
 
     func testSmoothOfAStillCameraEqualsLocked() throws {
@@ -142,36 +157,42 @@ final class StabilizationModeTests: XCTestCase {
         XCTAssertEqual(smooth.cropRetention, locked.cropRetention, accuracy: 1e-9)
     }
 
-    func testPoseRoundTripsASimilarityAboutTheFrameCenter() {
-        let center = SIMD2<Double>(480, 270)
-        let angle = 0.05, scale = 1.04, tx = 12.0, ty = -7.0
-        let c = cos(angle) * scale, s = sin(angle) * scale
-        let original = SmoothedPathSolver.Pose(tx: tx, ty: ty, rotation: angle, logScale: log(scale))
-        let matrix = original.matrix(aboutCenter: center)
-        let read = SmoothedPathSolver.Pose(matrix, aboutCenter: center)
-        XCTAssertEqual(read.tx, tx, accuracy: 1e-3)
-        XCTAssertEqual(read.ty, ty, accuracy: 1e-3)
-        XCTAssertEqual(read.rotation, angle, accuracy: 1e-5)
-        XCTAssertEqual(read.logScale, log(scale), accuracy: 1e-5)
-        XCTAssertEqual(Double(matrix[0][0]), c, accuracy: 1e-5)
-        XCTAssertEqual(Double(matrix[0][1]), s, accuracy: 1e-5)
-    }
-
-    func testSmoothingTreatsTheEndsWithoutPullingTowardZero() {
-        // A constant path stays constant, including at the ends.
-        let poses = Array(repeating: SmoothedPathSolver.Pose(tx: 10, ty: -4, rotation: 0.1, logScale: 0.02), count: 30)
-        for pose in SmoothedPathSolver.smooth(poses, sigma: 8) {
-            XCTAssertEqual(pose.tx, 10, accuracy: 1e-9)
-            XCTAssertEqual(pose.rotation, 0.1, accuracy: 1e-9)
+    /// The reason Smooth filters the matrices instead of splitting them into parameters: a linear filter
+    /// cannot add jitter at any point. Checked at five points on a clip with correlated shift, rotation
+    /// and scale noise, which is what broke the parameter-by-parameter version.
+    func testSmoothingNeverAddsJitterAtAnyPoint() throws {
+        var rng = SplitMix64Test(seed: 7)
+        // Rotation and shift jitter that cancel at one point of the frame (correlated, as estimator noise is).
+        let motion: [FrameMotion] = (0..<60).map { i in
+            let angle = (rng.unit() - 0.5) * 0.03
+            let shift = -angle * 400 // the shift that keeps the point (400, 0) still
+            let c = Float(cos(angle)), s = Float(sin(angle))
+            let t = simd_float3x3(columns: (SIMD3<Float>(c, s, 0), SIMD3<Float>(-s, c, 0), SIMD3<Float>(Float(shift), 0, 1)))
+            return FrameMotion(index: i, transform: t)
+        }
+        let off = try OriginalPathSolver().solve(motion: motion, frameSize: Self.frameSize)
+        let smooth = try SmoothedPathSolver(maxMoveFraction: 1).solve(motion: motion, frameSize: Self.frameSize)
+        for point in [SIMD2<Float>(400, 0), SIMD2(0, 0), SIMD2(960, 540), SIMD2(480, 270), SIMD2(100, 500)] {
+            let before = Self.jitter2(Self.outputPositions(off, motion, point: point))
+            let after = Self.jitter2(Self.outputPositions(smooth, motion, point: point))
+            XCTAssertLessThanOrEqual(after, before + 1e-6, "Smooth added jitter at \(point): \(before) -> \(after)")
         }
     }
 
-    func testRotationIsUnwrappedBeforeSmoothing() {
-        // Angles either side of +/-pi are the same direction; averaging them naively gives ~0.
-        let poses = [3.1, -3.1, 3.1, -3.1, 3.1].map { SmoothedPathSolver.Pose(tx: 0, ty: 0, rotation: $0, logScale: 0) }
-        let smoothed = SmoothedPathSolver.smooth(poses, sigma: 2)
-        for pose in smoothed {
-            XCTAssertGreaterThan(abs(pose.rotation), 2.5, "must stay near +/-pi, not collapse to zero: \(pose.rotation)")
+    /// Mean second difference of a path: the shake in it. Zero for a straight line.
+    static func jitter2(_ positions: [SIMD2<Float>]) -> Double {
+        var sum = 0.0
+        for i in 1..<(positions.count - 1) {
+            sum += Double(simd_distance(positions[i], (positions[i - 1] + positions[i + 1]) / 2))
+        }
+        return sum / Double(positions.count - 2)
+    }
+
+    func testSmoothingKeepsAConstantPathConstantIncludingAtTheEnds() {
+        let poses = Array(repeating: SmoothedPathSolver.normalized(Self.translation(10, -4)), count: 30)
+        for pose in SmoothedPathSolver.smooth(poses, sigma: 8) {
+            XCTAssertEqual(pose[2][0], 10, accuracy: 1e-9)
+            XCTAssertEqual(pose[2][1], -4, accuracy: 1e-9)
         }
     }
 
