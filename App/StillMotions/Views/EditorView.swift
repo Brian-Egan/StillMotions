@@ -1,87 +1,106 @@
 import Photos
-import SwiftUI
 import StillMotionsPipeline
+import SwiftUI
 
-/// Placeholder for the editor (#25). It also proves the app is wired to the pipeline package:
-/// the line below is computed by the package, from the user's saved default preset.
+/// The editor: the stabilized preview, looping, with the playback mode and the GIF frame rate
+/// switchable while it plays. Trim, crop, the warning and export are later issues (#27 to #33).
 struct EditorView: View {
     let assetID: String
     @Environment(AppSettings.self) private var settings
-    @State private var staging: StagingState = .loading(0)
+    @State private var model: EditorModel?
 
-    /// The result of pulling the Live Photo's files out of the library and reading them with the
-    /// pipeline's importer. The real editor (#25) will keep the files while it works; this
-    /// placeholder checks the path end to end and then cleans up.
-    enum StagingState {
-        case loading(Double)
-        case staged(String)
-        case failed(String)
+    var body: some View {
+        Group {
+            if let model {
+                EditorContent(model: model, assetID: assetID)
+            } else {
+                ProgressView()
+            }
+        }
+        .navigationTitle("Editor")
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: assetID) {
+            let model = EditorModel(assetID: assetID, defaults: settings.values)
+            self.model = model
+            await model.load()
+        }
+        // Frees the cache and removes the extracted files when the editor closes.
+        .onDisappear { model?.close() }
     }
+}
 
-    private var previewSize: String {
-        // A made-up 1920x1080 crop, sized the way an export at the default preset would be.
-        let size = OutputSize.size(
-            forCrop: CGRect(x: 0, y: 0, width: 1920, height: 1080),
-            longEdge: settings.values.sizePreset.longEdge
-        )
-        return "\(Int(size.width)) x \(Int(size.height))"
-    }
+private struct EditorContent: View {
+    @Bindable var model: EditorModel
+    let assetID: String
 
-    /// The asset the gallery handed over, looked up by its PhotoKit identifier.
+    /// The date the tapped photo was taken, so the screen can show which photo it is.
     private var takenDate: String {
         let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject
         return asset?.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "unknown"
     }
 
     var body: some View {
-        List {
-            Section("Editor placeholder") {
-                LabeledContent("Asset", value: assetID)
-                LabeledContent("Taken", value: takenDate)
-                    .accessibilityIdentifier("editorTakenDate")
+        VStack(spacing: 16) {
+            switch model.phase {
+            case .loading(let message):
+                Spacer()
+                ProgressView(message)
+                Spacer()
+            case .failed(let message):
+                Spacer()
+                ContentUnavailableView("Could not open this photo", systemImage: "exclamationmark.triangle", description: Text(message))
+                Spacer()
+            case .ready:
+                PreviewView(model: model)
+                    .aspectRatio(preview: model)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                controls
+                Text(model.stabilizationStatus)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .accessibilityIdentifier("stabilizationStatus")
+                Spacer(minLength: 0)
             }
-            Section("Live Photo files") {
-                switch staging {
-                case .loading(let fraction):
-                    LabeledContent("Extracting", value: "\(Int(fraction * 100))%")
-                case .staged(let summary):
-                    Text(summary).accessibilityIdentifier("stagingResult")
-                case .failed(let message):
-                    Text(message).foregroundStyle(.red).accessibilityIdentifier("stagingResult")
-                }
-            }
-            Section("From the pipeline package") {
-                LabeledContent("Default preset", value: settings.values.sizePreset.rawValue.capitalized)
-                LabeledContent("1920x1080 crop becomes", value: previewSize)
-                LabeledContent("GIF delay", value: "\(settings.values.gifFrameRate.centiseconds) cs per frame")
-                LabeledContent("Default mode", value: settings.values.mode.rawValue.capitalized)
-                LabeledContent("Default format", value: settings.values.format.rawValue.uppercased())
-            }
+            // Which photo this is, for the tap-goes-to-the-right-photo check, and the debug counters.
+            Text(takenDate).font(.caption2).foregroundStyle(.tertiary).accessibilityIdentifier("editorTakenDate")
+            #if DEBUG
+            Text("analyses \(model.analyzeCount), plans \(model.planCount), memory \(MemoryFootprint.megabytes) MB")
+                .font(.caption2.monospacedDigit())
+                .accessibilityIdentifier("editorCounters")
+            #endif
         }
-        .navigationTitle("Editor")
-        .navigationBarTitleDisplayMode(.inline)
-        .task(id: assetID) { await stage() }
+        .padding()
     }
 
-    /// Extracts the pair, reads it with the importer, reports what it found, and cleans up.
-    private func stage() async {
-        let loader = PhotoKitLivePhotoLoader()
-        do {
-            let staged = try await loader.load(assetID: assetID) { fraction in
-                Task { @MainActor in staging = .loading(fraction) }
+    private var controls: some View {
+        VStack(spacing: 12) {
+            Picker("Mode", selection: $model.mode) {
+                ForEach(PlaybackMode.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
             }
-            defer { staged.cleanup() }
-            let clip = try await LivePhotoImporter.describeClip(heicURL: staged.stillURL, movURL: staged.videoURL)
-            let size = { (url: URL) in (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0 }
-            staging = .staged(
-                "Staged the \(staged.plan.tier.rawValue) pair: still \(size(staged.stillURL) / 1024) KB, "
-                + "video \(size(staged.videoURL) / 1024) KB. \(clip.width)x\(clip.height), \(clip.frameCount) frames, "
-                + "reference frame \(clip.referenceFrameIndex). Folders left behind: \(loader.stager.stagedFolderCount() - 1)."
-            )
-        } catch is CancellationError {
-            // The editor closed while loading; the stager has already cleaned up.
-        } catch {
-            staging = .failed("\(error)")
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("modePicker")
+
+            Picker("Frame rate", selection: $model.frameRate) {
+                ForEach(GifFrameRate.allCases, id: \.self) { Text(Self.label(for: $0)).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("ratePicker")
+
+            if model.mode == .loop, !model.hasLoop {
+                Text("No loop point found, so this plays the whole clip.").font(.caption).foregroundStyle(.secondary)
+            }
         }
+    }
+
+    private static func label(for rate: GifFrameRate) -> String {
+        rate == .fps16_67 ? "16.7 fps" : "\(Int(rate.framesPerSecond)) fps"
+    }
+}
+
+private extension View {
+    /// The preview keeps the crop's own shape rather than stretching to the screen.
+    func aspectRatio(preview model: EditorModel) -> some View {
+        aspectRatio(model.previewAspectRatio, contentMode: .fit)
     }
 }

@@ -50,6 +50,18 @@ public struct LoopSelection: Equatable {
     public let seamRatio: Double
     /// Median mean-absolute-difference between consecutive frames of the loop.
     public let medianStep: Double
+
+    public init(
+        startIndex: Int, returnIndex: Int, frames: [LoopFrameRecipe],
+        seamRatioBeforeCrossfade: Double, seamRatio: Double, medianStep: Double
+    ) {
+        self.startIndex = startIndex
+        self.returnIndex = returnIndex
+        self.frames = frames
+        self.seamRatioBeforeCrossfade = seamRatioBeforeCrossfade
+        self.seamRatio = seamRatio
+        self.medianStep = medianStep
+    }
 }
 
 public enum LoopOutcome: Equatable {
