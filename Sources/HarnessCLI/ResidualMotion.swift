@@ -1,3 +1,4 @@
+import AVFoundation
 import CoreImage
 import CoreVideo
 import Foundation
@@ -77,6 +78,20 @@ struct ResidualMotionMeter {
         @unknown default: level = "unknown"
         }
         return "flow-\(level)"
+    }
+
+    /// Residual motion of `movieURL` stabilized by `path`, measured on the frames as a viewer sees
+    /// them at preview size (720 px long edge), in playback order.
+    static func measure(
+        movieURL: URL, path: CameraPath, renderer: StabilizedRenderer, masker: SubjectMasker? = nil
+    ) async throws -> Result {
+        let asset = AVURLAsset(url: movieURL)
+        guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipImportError.noVideoTrack(movieURL) }
+        let next = try renderer.makeProducer(
+            frames: try FrameSequence.make(asset: asset, track: track), corrections: path.corrections,
+            crop: path.crop, outputSize: OutputSize.size(forCrop: path.crop, longEdge: 720)
+        )
+        return try await ResidualMotionMeter().measure(next: next, masker: masker)
     }
 
     struct Result {
