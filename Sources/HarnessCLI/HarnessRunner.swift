@@ -23,6 +23,8 @@ enum HarnessRunner {
         var metricsOnly = false
         /// Mask moving subjects out of the motion estimate (#19).
         var masking = false
+        /// How strongly to stabilize: off, smooth or locked (issue #84). The baseline is for locked.
+        var stabilization = StabilizationMode.default
         /// With `masking`, mask people only (Vision person segmentation), not other foreground.
         var maskPeopleOnly = false
         /// Drop moving-subject samples from the residual-motion measurement too. Implied by
@@ -37,11 +39,13 @@ enum HarnessRunner {
     static let usage = """
         usage: stillmotions-harness --fixtures <dir> --out <dir> [--baseline <file>]
                                     [--estimator registration|registration-direct|flow] [--solver warp|l1] [--update-baseline] [--metrics-only] [--masking] [--people-only] [--masked-meter]
+                                    [--stabilization off|smooth|locked]
         """
 
     static func parse(_ arguments: [String]) throws -> Options {
         var fixtures: URL?, out: URL?, baseline: URL?
         var estimator = "registration", solver = "warp", update = false, metricsOnly = false, masking = false, maskedMeter = false, peopleOnly = false
+        var stabilization = StabilizationMode.default
         var i = 0
         func value(_ flag: String) throws -> String {
             i += 1
@@ -60,6 +64,12 @@ enum HarnessRunner {
             case "--masking": masking = true
             case "--masked-meter": maskedMeter = true
             case "--people-only": peopleOnly = true
+            case "--stabilization":
+                let name = try value("--stabilization")
+                guard let mode = StabilizationMode(rawValue: name) else {
+                    throw SpikeError("--stabilization must be 'off', 'smooth' or 'locked', not '\(name)'")
+                }
+                stabilization = mode
             default: throw SpikeError("unknown argument '\(arguments[i])'\n\(usage)")
             }
             i += 1
@@ -70,7 +80,7 @@ enum HarnessRunner {
             throw SpikeError("--estimator must be 'registration', 'registration-direct' or 'flow', not '\(estimator)'")
         }
         guard ["warp", "l1"].contains(solver) else { throw SpikeError("--solver must be 'warp' or 'l1', not '\(solver)'") }
-        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update, metricsOnly: metricsOnly, masking: masking, maskPeopleOnly: peopleOnly, maskedMeter: maskedMeter)
+        return Options(fixtures: fixtures, out: out, baseline: baseline, estimator: estimator, solver: solver, updateBaseline: update, metricsOnly: metricsOnly, masking: masking, stabilization: stabilization, maskPeopleOnly: peopleOnly, maskedMeter: maskedMeter)
     }
 
     // MARK: - Reports
@@ -106,6 +116,8 @@ enum HarnessRunner {
         let estimator: String
         let solver: String
         let estimationFailures: Int
+        /// The stabilization mode the path was solved for: off, smooth or locked.
+        let stabilization: String
         /// Frames whose subject mask was applied, and frames where it covered too much and was
         /// dropped. Both 0 unless run with `--masking`.
         let maskedFrames: Int
@@ -155,6 +167,9 @@ enum HarnessRunner {
         let flowAvailable = await FlowAvailability.probe()
         if options.estimator == "flow", !flowAvailable {
             throw SpikeError("--estimator flow: Vision optical flow does not run on this machine (it fails on GitHub-hosted runners)")
+        }
+        if options.baseline != nil || options.updateBaseline, options.stabilization != .default {
+            throw SpikeError("the regression baseline is for --stabilization \(StabilizationMode.default.rawValue); comparing or writing it for '\(options.stabilization.rawValue)' would mix modes")
         }
         if options.updateBaseline, !flowAvailable {
             throw SpikeError("--update-baseline needs residual motion, and Vision optical flow does not run on this machine. Writing a baseline without it would silently drop the residual-motion check; run this on a Mac.")
@@ -232,6 +247,7 @@ enum HarnessRunner {
         return ClipReport(
             name: clip.name, width: 0, height: 0, frameCount: 0, frameRate: 0, referenceIndex: 0,
             estimator: options.estimator, solver: options.solver, estimationFailures: 0,
+            stabilization: options.stabilization.rawValue,
             maskedFrames: 0, maskSkippedFrames: 0,
             metrics: metrics, failures: metrics.failures.map(\.rawValue), crop: [], loop: nil,
             residualPairs: 0, residualSkippedPairs: 0, truthRMSpx: nil, outputs: [], timingsMs: [:],
@@ -260,17 +276,14 @@ enum HarnessRunner {
         let result = try await ClipAnalyzer.analyze(
             movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: estimator,
             strategy: options.estimator == "registration" ? .chained : .reference,
+            mode: options.stabilization,
             masker: options.masking ? options.makeMasker() : nil,
             residualMotion: flowAvailable
                 ? { path in
-                    let asset = AVURLAsset(url: clip.movieURL)
-                    guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw ClipImportError.noVideoTrack(clip.movieURL) }
-                    // Residual motion on the stabilized frames at preview size, in playback order.
-                    let next = try renderer.makeProducer(
-                        frames: try FrameSequence.make(asset: asset, track: track), corrections: path.corrections,
-                        crop: path.crop, outputSize: OutputSize.size(forCrop: path.crop, longEdge: 720)
+                    residual = try await ResidualMotionMeter.measure(
+                        movieURL: clip.movieURL, path: path, renderer: renderer,
+                        masker: options.metersWithMasks ? options.makeMasker() : nil
                     )
-                    residual = try await ResidualMotionMeter().measure(next: next, masker: options.metersWithMasks ? options.makeMasker() : nil)
                     return residual?.meanPixels
                 }
                 : nil,
@@ -309,6 +322,7 @@ enum HarnessRunner {
             name: clip.name, width: Int(analysis.size.width), height: Int(analysis.size.height),
             frameCount: analysis.motion.count, frameRate: analysis.frameRate, referenceIndex: referenceIndex,
             estimator: options.estimator, solver: options.solver, estimationFailures: analysis.estimationFailures,
+            stabilization: options.stabilization.rawValue,
             maskedFrames: analysis.maskedFrames, maskSkippedFrames: analysis.maskSkippedFrames,
             metrics: metrics, failures: metrics.failures.map(\.rawValue),
             crop: [Double(path.crop.minX), Double(path.crop.minY), Double(path.crop.width), Double(path.crop.height)].map { ($0 * 100).rounded() / 100 },

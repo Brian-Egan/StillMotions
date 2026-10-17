@@ -164,6 +164,22 @@ See [0001](decisions/0001-motion-estimation.md).
 - *Verify:* `swift test` — for a synthetic fixture with known translation, the computed
   crop matches the analytically-derived rectangle within 1 px.
 
+**R-7a — Stabilization strength.** The user chooses how strongly a clip is stabilized: **Off**,
+**Smooth** or **Locked**. Locked is the default. See [0011](decisions/0011-stabilization-modes.md).
+
+- **Off:** the frames as shot, the whole frame, no crop.
+- **Smooth:** the shake is removed and slow drift is kept. Each frame is moved by a limited
+  amount, so the crop is larger than Locked's and cannot fall below a floor set by those limits.
+- **Locked:** the camera is pinned to the reference frame (R-7).
+- Motion is estimated once. Changing strength solves a new path and refreshes the preview
+  (R-15); it does not estimate motion again.
+- The editor shows how much of the frame each strength keeps.
+- Failure signals (R-18) are judged for the chosen strength. Off is never reported as a
+  stabilization failure. Smooth is judged on crop retention and the loop seam but not on
+  residual motion, because it keeps drift on purpose. Locked is judged on all three.
+- *Verify:* `swift test` — crop kept goes Off, then Smooth, then Locked; leftover motion goes
+  the other way; switching strength does not re-run motion estimation.
+
 **R-8 — Loop point selection.** Find the least-visible loop and hide it.
 
 - Search frame pairs near the clip ends for the minimum difference; apply a short
@@ -260,6 +276,7 @@ export still permitted.
 
 - Basis for non-blocking: the user may want the output anyway, and the thresholds are
   heuristics, not verdicts.
+- Judged for the chosen stabilization strength (R-7a).
 - *Verify:* on device, open a fixture known to fail; warning appears, editing and export
   still work.
 

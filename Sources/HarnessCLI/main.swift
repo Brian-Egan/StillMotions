@@ -5,6 +5,7 @@ import Foundation
 //   stillmotions-harness --fixtures <dir> --out <dir> [...]   the metrics run (HarnessRunner)
 //   stillmotions-harness generate-fixtures --out <dir>        regenerate the synthetic clips
 //   stillmotions-harness benchmark-estimators ...             the decision 0001 measurement
+//   stillmotions-harness compare-stabilization ...            off / smooth / locked side by side (#84)
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -38,6 +39,12 @@ case "benchmark-estimators":
         try await BenchmarkEstimators.run(arguments: Array(arguments.dropFirst(2)))
     } catch {
         fail("benchmark-estimators failed: \(error)")
+    }
+case "compare-stabilization":
+    do {
+        try await CompareStabilization.run(arguments: Array(arguments.dropFirst(2)))
+    } catch {
+        fail("compare-stabilization failed: \(error)")
     }
 default:
     fail("unknown subcommand: \(arguments[1])")
