@@ -1,52 +1,52 @@
 {
   "clips" : {
     "combined" : {
-      "cropRetention" : 0.7936219220179185,
-      "loopSeamRatio" : 0.640987237294515,
+      "cropRetention" : 0.7954122992640754,
+      "loopSeamRatio" : 0.7646226353115506,
       "passed" : true,
-      "residualMotion" : 0.07629934242018509
+      "residualMotion" : 0.09722620012667924
     },
     "moving-subject" : {
-      "cropRetention" : 0.9547076171562378,
-      "loopSeamRatio" : 1.3464332156711154,
+      "cropRetention" : 0.9595991664827054,
+      "loopSeamRatio" : 1.3081875907050238,
       "passed" : true,
-      "residualMotion" : 0.1950203918295836
+      "residualMotion" : 0.2046841370633167
     },
     "parallax" : {
-      "cropRetention" : 0.978392029236007,
-      "loopSeamRatio" : 0.7107758522033691,
+      "cropRetention" : 0.9791839557925386,
+      "loopSeamRatio" : 0.6175633006625705,
       "passed" : true,
-      "residualMotion" : 0.06411496060033017
+      "residualMotion" : 0.0683503100327913
     },
     "periodic" : {
-      "cropRetention" : 0.9588401320729723,
-      "loopSeamRatio" : 0.42336644066704643,
+      "cropRetention" : 0.9606156556245643,
+      "loopSeamRatio" : 0.56219392352634,
       "passed" : true,
-      "residualMotion" : 0.170695442209982
+      "residualMotion" : 0.184829093778965
     },
     "rotate" : {
-      "cropRetention" : 0.8542298036757705,
-      "loopSeamRatio" : 0.37218530972798664,
+      "cropRetention" : 0.8567245962947652,
+      "loopSeamRatio" : 0.45030350155300564,
       "passed" : true,
-      "residualMotion" : 0.05606825664311679
+      "residualMotion" : 0.06782809780358993
     },
     "scale" : {
-      "cropRetention" : 0.9202223673225475,
-      "loopSeamRatio" : 0.30663633346557617,
+      "cropRetention" : 0.9174465693352586,
+      "loopSeamRatio" : 0.4093201160430908,
       "passed" : true,
-      "residualMotion" : 0.04995317334705605
+      "residualMotion" : 0.05984215394976396
     },
     "translate-linear" : {
-      "cropRetention" : 0.9633785072982282,
-      "loopSeamRatio" : 0.4891386032104492,
+      "cropRetention" : 0.9623711146086231,
+      "loopSeamRatio" : 0.6082252926296658,
       "passed" : true,
-      "residualMotion" : 0.06290161579041029
+      "residualMotion" : 0.08443268576493777
     },
     "translate-shake" : {
-      "cropRetention" : 0.9653871484757646,
-      "loopSeamRatio" : 0.2716163529290093,
+      "cropRetention" : 0.9644276037764704,
+      "loopSeamRatio" : 0.45902956856621635,
       "passed" : true,
-      "residualMotion" : 0.18601488946889735
+      "residualMotion" : 0.2010879471291447
     }
   },
   "estimator" : "registration",

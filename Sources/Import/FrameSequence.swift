@@ -67,7 +67,12 @@ public struct FrameSequence: Sequence {
             let attributes: [CFString: Any] = [kCVPixelBufferIOSurfacePropertiesKey: [String: Any]()]
             CVPixelBufferCreate(nil, width, height, kCVPixelFormatType_32BGRA, attributes as CFDictionary, &out)
             guard let buffer = out else { return nil }
-            context.render(image, to: buffer, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: nil)
+            // Name the output space. Core Image works in linear light, and a render that names none
+            // stores linear numbers that everything downstream reads as sRGB: a portrait clip came out
+            // too dark (#90). Tagging the buffer lets later readers interpret it the same way.
+            let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+            context.render(image, to: buffer, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: sRGB)
+            CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, sRGB, .shouldPropagate)
             return buffer
         }
     }
