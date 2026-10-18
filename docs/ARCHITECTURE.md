@@ -307,6 +307,34 @@ gifski reaches Swift through the `CGifski` binary target over
 `aarch64-apple-darwin`, `aarch64-apple-ios`, and `aarch64-apple-ios-sim`. The artifact is
 gitignored; the script is the record ([0004](decisions/0004-gifski-integration.md)).
 
+### Size estimate (R-13)
+
+`SizeEstimator` (PipelineCore) predicts an export's size before anything is encoded, so the export
+screen can show it on every settings change. It does no encoding and no I/O.
+
+- **MP4** is the encoder's own bitrate target (`VideoEncoder`: 0.08 bits per pixel per frame, 300 kbit/s
+  floor) over the clip's duration, times a fitted fraction.
+- **GIF** is `ln(bytes / (pixels x frames))` as a weighted sum of terms known up front: output pixels,
+  GIF frame rate, the clip's content (`ContentFeatures`: detail, edge density, frame-to-frame change,
+  color entropy), crop retention, the clip's own frame rate, and whether the mode is Bounce. Content
+  is the big one: a plain wall and leaves in the wind differ by an order of magnitude at the same
+  dimensions. It is measured from the stabilized preview frames the editor already holds
+  (`StabilizedFrameCache.contentFeatures`), a few small frames, so it costs nothing worth noting.
+- The frame count it is given is `PlaybackPlan.steps.count` for a GIF, which already includes the Loop
+  crossfade, Bounce and rate decimation, and is tested to equal what the exporter writes.
+
+The coefficients live in `SizeModel.shipped` and are **fitted, not hand-tuned**. To refit after any
+change to the encoder, the renderer or the presets:
+
+```
+swift run -c release stillmotions-harness estimate-accuracy --fixtures tests/fixtures/personal --out /tmp/est
+```
+
+It encodes every clip at every preset, format and rate (about 14 exports a clip), writes
+`samples.json`, then fits the model and reports accuracy **on clips the model was not fitted on** (5-fold
+cross-validation by clip). `--samples <file>` re-fits from a saved run without encoding again. Paste the
+coefficients it prints into `SizeModel.shipped`.
+
 The gifski version is **pinned in the script**. An unpinned encoder makes the regression
 baseline meaningless, since output size and dithering would drift underneath it.
 
