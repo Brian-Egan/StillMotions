@@ -26,7 +26,7 @@ final class SizeEstimatorTests: XCTestCase {
 
     func testMp4NeverFallsBelowTheEncodersMinimumBitRate() {
         // 64x48 at 30 fps would be 7,373 bit/s; the encoder floors it at 300,000. 30 frames is 1 s.
-        let estimate = SizeEstimator().estimate(SizeInput(format: .mp4, width: 64, height: 48, frameCount: 30, sourceFrameRate: 30, cropRetention: 1))
+        let estimate = SizeEstimator(model: Self.flatGif(bytesPerPixelFrame: 1)).estimate(SizeInput(format: .mp4, width: 64, height: 48, frameCount: 30, sourceFrameRate: 30, cropRetention: 1))
         XCTAssertEqual(estimate, 37_500)
     }
 
