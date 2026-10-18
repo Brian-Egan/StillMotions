@@ -227,6 +227,18 @@ final class StabilizationModeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(crops[.smooth]!, crops[.locked]!)
     }
 
+    /// The editor labels each choice with the crop it keeps, from one estimate (#88).
+    func testCropRetentionsCoverEveryModeFromOneEstimate() async throws {
+        let url = MotionEstimationTests.fixturesDirectory.appendingPathComponent("translate-shake.mov")
+        let analysis = try await ClipAnalyzer.analyze(movieURL: url, referenceIndex: 0, estimator: VisionRegistrationEstimator(), mode: .locked)
+        let crops = ClipAnalyzer.cropRetentions(motion: analysis.motion)
+
+        XCTAssertEqual(Set(crops.keys), Set(StabilizationMode.allCases))
+        XCTAssertEqual(crops[.off], 1, "Off keeps the whole frame")
+        XCTAssertEqual(crops[.locked]!, analysis.path.cropRetention, accuracy: 1e-9, "the label must match what choosing Locked gives")
+        XCTAssertGreaterThanOrEqual(crops[.smooth]!, crops[.locked]!)
+    }
+
     func testFailureSignalsAreJudgedForTheActiveMode() async throws {
         let url = MotionEstimationTests.fixturesDirectory.appendingPathComponent("translate-shake.mov")
         let motion = try await ClipAnalyzer.analyze(movieURL: url, referenceIndex: 0, estimator: VisionRegistrationEstimator(), mode: .off).motion

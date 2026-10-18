@@ -8,9 +8,13 @@ import os
 /// The editor's state: it opens a Live Photo, solves it ONCE into a stabilized frame cache, and
 /// then plays that cache in the chosen mode at the chosen rate (ARCHITECTURE §5).
 ///
-/// Changing the mode or the frame rate only re-plans which cached frames play in which order
-/// (`PlaybackPlan`), so it is instant and never solves again. `analyzeCount` counts solves, and
-/// the UI tests hold it at 1 across any number of switches.
+/// Changing the playback mode or the frame rate only re-plans which cached frames play in which
+/// order (`PlaybackPlan`), so it is instant and never solves again.
+///
+/// Changing the STABILIZATION (Off, Smooth, Locked) solves a new path from the motion already
+/// estimated, re-selects the loop and rebuilds the cache. It never estimates motion again, and the
+/// preview that is playing keeps playing until the new one is ready (PRD R-7a, R-15).
+/// `estimateCount` and `analyzeCount` count those two steps; the UI tests hold `estimateCount` at 1.
 @MainActor
 @Observable
 final class EditorModel {
@@ -24,8 +28,18 @@ final class EditorModel {
     private(set) var plan = PlaybackPlan(steps: [], frameRate: .fps20)
     private(set) var analysis: ClipAnalysis?
     private(set) var timings = PreviewTimings()
-    /// How many times the full analysis has run for this open. It must stay at 1.
+    /// How many times motion was estimated for this open. It must stay at 1, whatever is switched.
+    private(set) var estimateCount = 0
+    /// How many times a path was solved (and the loop re-selected): once on open, then once per
+    /// stabilization change.
     private(set) var analyzeCount = 0
+    /// The stabilization the preview is showing.
+    private(set) var stabilization: StabilizationMode = .default
+    /// The stabilization the user last asked for. Differs from `stabilization` only while a
+    /// switch is being solved.
+    private(set) var requestedStabilization: StabilizationMode = .default
+    /// How much of the frame each stabilization keeps for this clip, shown next to the control.
+    private(set) var cropByStabilization: [StabilizationMode: Double] = [:]
     /// How many times the playback plan was rebuilt (mode and rate changes).
     private(set) var planCount = 0
     /// Each time playback is restarted (a new plan), so the view can begin from the first step.
@@ -38,6 +52,9 @@ final class EditorModel {
     @ObservationIgnored private var cache: StabilizedFrameCache?
     @ObservationIgnored private var frameTimes: [Double] = []
     @ObservationIgnored private var staged: StagedLivePhoto?
+    @ObservationIgnored private var motion: ClipAnalyzer.MotionResult?
+    @ObservationIgnored private var movieURL: URL?
+    @ObservationIgnored private var switchTask: Task<Void, Never>?
     @ObservationIgnored private let renderer = StabilizedRenderer()
     @ObservationIgnored private let context = CIContext()
     @ObservationIgnored private var openedAt = ContinuousClock.now
@@ -80,22 +97,26 @@ final class EditorModel {
                 : clip.frameTimes
 
             phase = .loading("Stabilizing")
-            analyzeCount += 1
             // The app passes no residual-motion meter: it needs optical flow, which ships only in the
             // harness (decision 0001), so that signal is simply not measured here.
-            let stageTimes = StageSink()
-            let recordStage: @Sendable (String, Double) -> Void = { stage, ms in stageTimes.record(stage, ms) }
-            let analyzed = try await ClipAnalyzer.analyze(
-                movieURL: movieURL, referenceIndex: clip.referenceFrameIndex,
-                estimator: VisionRegistrationEstimator(), residualMotion: nil,
-                onStage: recordStage
-            )
-            for (stage, ms) in stageTimes.values { timings.record(stage, ms) }
-            analysis = analyzed
+            estimateCount += 1
+            let estimated = try await StageTimer.time("estimate") {
+                try await ClipAnalyzer.estimateMotion(
+                    movieURL: movieURL, referenceIndex: clip.referenceFrameIndex, estimator: VisionRegistrationEstimator()
+                )
+            }
+            timings.record("estimate", estimated.milliseconds)
+            motion = estimated.value
+            self.movieURL = movieURL
+            cropByStabilization = ClipAnalyzer.cropRetentions(motion: estimated.value)
+
+            let solved = try await solve(stabilization, movieURL: movieURL, motion: estimated.value)
+            for (stage, ms) in solved.stageTimes { timings.record(stage, ms) }
+            analysis = solved.analysis
 
             phase = .loading("Rendering the preview")
             let built = try await StageTimer.time("cache") {
-                try await Self.buildCache(movieURL: movieURL, corrections: analyzed.path.corrections, sourceSize: analyzed.motion.size)
+                try await Self.buildCache(movieURL: movieURL, corrections: solved.analysis.path.corrections, sourceSize: solved.analysis.motion.size)
             }
             cache = built.value
             timings.record("cache", built.milliseconds)
@@ -108,6 +129,54 @@ final class EditorModel {
         } catch {
             close()
             phase = .failed("\(error)")
+        }
+    }
+
+    /// Solves the path for `mode` from motion that is already estimated, and picks the loop. This
+    /// is the whole cost of a stabilization change apart from rebuilding the cache.
+    private func solve(
+        _ mode: StabilizationMode, movieURL: URL, motion: ClipAnalyzer.MotionResult
+    ) async throws -> (analysis: ClipAnalysis, stageTimes: [String: Double]) {
+        analyzeCount += 1
+        let stageTimes = StageSink()
+        let recordStage: @Sendable (String, Double) -> Void = { stage, ms in stageTimes.record(stage, ms) }
+        let analyzed = try await ClipAnalyzer.analyze(movieURL: movieURL, motion: motion, mode: mode, onStage: recordStage)
+        return (analyzed, stageTimes.values)
+    }
+
+    // MARK: - Stabilization
+
+    /// Switches to another stabilization. Latest request wins: asking again while one is being
+    /// solved abandons the earlier one. The preview that is playing keeps playing until the new
+    /// cache is ready, then everything swaps at once.
+    func selectStabilization(_ mode: StabilizationMode) {
+        guard phase == .ready, mode != requestedStabilization else { return }
+        requestedStabilization = mode
+        switchTask?.cancel()
+        switchTask = Task { await applyStabilization(mode) }
+    }
+
+    private func applyStabilization(_ mode: StabilizationMode) async {
+        guard let movieURL, let motion else { return }
+        let started = ContinuousClock.now
+        do {
+            let solved = try await solve(mode, movieURL: movieURL, motion: motion)
+            let built = try await Self.buildCache(
+                movieURL: movieURL, corrections: solved.analysis.path.corrections, sourceSize: solved.analysis.motion.size
+            )
+            // A newer request, or closing the editor, makes this result stale.
+            guard !Task.isCancelled, requestedStabilization == mode, self.motion != nil else { return }
+            cache = built
+            analysis = solved.analysis
+            stabilization = mode
+            replan()
+            let elapsed = ContinuousClock.now - started
+            let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+            StageTimer.logger.info("stabilization switch to \(mode.rawValue, privacy: .public): \(ms, format: .fixed(precision: 0)) ms")
+        } catch {
+            // Keep what is playing; offer the previous choice again.
+            if requestedStabilization == mode { requestedStabilization = stabilization }
+            StageTimer.logger.error("stabilization switch to \(mode.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -125,6 +194,9 @@ final class EditorModel {
 
     /// Releases the cache and removes the extracted files. Safe to call more than once.
     func close() {
+        switchTask?.cancel()
+        switchTask = nil
+        motion = nil
         cache = nil
         analysis = nil
         staged?.cleanup()
@@ -178,6 +250,7 @@ final class EditorModel {
     /// is still editable (PRD R-18). The warning UI itself is #29.
     var stabilizationStatus: String {
         guard let analysis else { return "" }
+        if stabilization == .off { return "Shown as shot: the whole frame, no stabilization." }
         if !analysis.stabilized {
             return "Could not stabilize this clip" + (analysis.unstabilizedReason.map { ": \($0)" } ?? "") + ". Showing it as shot."
         }

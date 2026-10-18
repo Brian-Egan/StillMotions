@@ -135,3 +135,19 @@ extension ClipAnalyzer {
         )
     }
 }
+
+extension ClipAnalyzer {
+    /// How much of the frame each stabilization mode keeps for this clip, so the editor can show
+    /// the cost of each choice before it is made (PRD R-7a). Solves each path from the motion
+    /// already estimated; it does not estimate again and does not select a loop, so it is cheap.
+    /// A mode that cannot be solved (nothing to crop to) is left out.
+    public static func cropRetentions(motion: MotionResult) -> [StabilizationMode: Double] {
+        var result: [StabilizationMode: Double] = [:]
+        for mode in StabilizationMode.allCases {
+            if let path = try? mode.solver.solve(motion: motion.motion, frameSize: motion.size) {
+                result[mode] = path.cropRetention
+            }
+        }
+        return result
+    }
+}
