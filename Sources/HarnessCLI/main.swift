@@ -6,6 +6,7 @@ import Foundation
 //   stillmotions-harness generate-fixtures --out <dir>        regenerate the synthetic clips
 //   stillmotions-harness benchmark-estimators ...             the decision 0001 measurement
 //   stillmotions-harness compare-stabilization ...            off / smooth / locked side by side (#84)
+//   stillmotions-harness estimate-accuracy ...                export-size estimate vs real files (#31)
 
 func fail(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
@@ -45,6 +46,12 @@ case "compare-stabilization":
         try await CompareStabilization.run(arguments: Array(arguments.dropFirst(2)))
     } catch {
         fail("compare-stabilization failed: \(error)")
+    }
+case "estimate-accuracy":
+    do {
+        try await EstimateAccuracy.run(arguments: Array(arguments.dropFirst(2)))
+    } catch {
+        fail("estimate-accuracy failed: \(error)")
     }
 default:
     fail("unknown subcommand: \(arguments[1])")
