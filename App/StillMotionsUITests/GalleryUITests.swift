@@ -157,6 +157,62 @@ final class GalleryUITests: XCTestCase {
         }
     }
 
+    /// "about 1.2 MB" or "850 KB" as bytes.
+    private func bytes(in text: String) -> Double? {
+        guard let match = text.range(of: #"([0-9]+(?:[.,][0-9]+)?)\s*(bytes|KB|MB|GB)"#, options: .regularExpression) else { return nil }
+        let parts = text[match].split(separator: " ")
+        guard parts.count >= 2, let value = Double(parts[0].replacingOccurrences(of: ",", with: ".")) else { return nil }
+        let unit: [String: Double] = ["bytes": 1, "KB": 1_000, "MB": 1_000_000, "GB": 1_000_000_000]
+        return value * (unit[String(parts[1])] ?? 1)
+    }
+
+    func testExportChoicesFollowTheFormatRulesAndShowAnEstimateForEachPreset() throws {
+        launch()
+        try requireEnoughPhotos()
+        openFirstPhoto()
+        let gif = app.buttons["format-gif"], mp4 = app.buttons["format-mp4"]
+        XCTAssertTrue(gif.waitForExistence(timeout: 10))
+
+        // Loop is the default mode: GIF is chosen, MP4 is unavailable, and the reason is on screen.
+        XCTAssertTrue(gif.isSelected, "GIF should be selected")
+        XCTAssertFalse(mp4.isEnabled, "MP4 can't loop")
+        XCTAssertTrue(app.staticTexts["formatReason"].exists, "a disabled MP4 needs a visible reason")
+        XCTAssertTrue(app.staticTexts["formatReason"].label.contains("GIF"))
+
+        // Bounce and Once offer both formats.
+        for mode in ["Bounce", "Once"] {
+            app.buttons[mode].tap()
+            XCTAssertTrue(mp4.isEnabled, "\(mode) should allow MP4")
+            XCTAssertFalse(app.staticTexts["formatReason"].exists, "no reason once nothing is disabled")
+        }
+        mp4.tap()
+        XCTAssertTrue(mp4.isSelected)
+        XCTAssertTrue(app.staticTexts["rateNote"].exists, "MP4 keeps the clip's own rate, and the screen should say so")
+
+        // Choosing Loop while MP4 is selected moves to GIF rather than leaving an impossible choice.
+        app.buttons["Loop"].tap()
+        XCTAssertTrue(gif.isSelected)
+        XCTAssertFalse(mp4.isEnabled)
+
+        // Each preset shows an estimate, and they are in order: that is the choice they are for.
+        let sizes = ["preset-small", "preset-medium", "preset-full"].map { bytes(in: app.buttons[$0].label) }
+        XCTAssertFalse(sizes.contains { $0 == nil }, "every preset should show an estimate: \(sizes)")
+        let small = sizes[0]!, medium = sizes[1]!, full = sizes[2]!
+        XCTAssertLessThan(small, medium)
+        XCTAssertLessThan(medium, full)
+
+        // The estimate for the chosen preset is shown, and a higher GIF frame rate raises it.
+        app.buttons["preset-medium"].tap()
+        app.segmentedControls["ratePicker"].buttons["16.7 fps"].tap()
+        let slow = try XCTUnwrap(bytes(in: app.staticTexts["estimatedSize"].label))
+        app.segmentedControls["ratePicker"].buttons["25 fps"].tap()
+        let fast = try XCTUnwrap(bytes(in: app.staticTexts["estimatedSize"].label))
+        XCTAssertGreaterThan(fast, slow, "more frames per second should cost more bytes")
+
+        // Only the three frame rates whose delay is a whole number of centiseconds are offered.
+        XCTAssertEqual(app.segmentedControls["ratePicker"].buttons.count, 3)
+    }
+
     func testOpeningAndClosingTheEditorRepeatedlyKeepsMemoryBoundedAndCleansUp() throws {
         launch()
         try requireEnoughPhotos()

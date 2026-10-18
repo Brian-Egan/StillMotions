@@ -45,8 +45,22 @@ final class EditorModel {
     /// Each time playback is restarted (a new plan), so the view can begin from the first step.
     private(set) var playbackStart = Date()
 
-    var mode: PlaybackMode { didSet { if mode != oldValue { replan() } } }
+    /// What the clip looks like to a GIF encoder, measured once from the preview frames. It is what
+    /// lets the size estimate tell a plain wall from leaves in the wind (issue #31).
+    private(set) var content: ContentFeatures?
+
+    var mode: PlaybackMode {
+        didSet {
+            guard mode != oldValue else { return }
+            // Loop is GIF-only (PRD R-10): choosing it while MP4 is selected moves to GIF.
+            exportFormat = ExportMatrix.format(exportFormat, afterSelecting: mode)
+            replan()
+        }
+    }
     var frameRate: GifFrameRate { didSet { if frameRate != oldValue { replan() } } }
+    /// The export choices (issue #32). Nothing exports from here; the export itself is #33.
+    var exportFormat: ExportFormat
+    var sizePreset: SizePreset
 
     @ObservationIgnored private let assetID: String
     @ObservationIgnored private var cache: StabilizedFrameCache?
@@ -64,6 +78,8 @@ final class EditorModel {
         self.assetID = assetID
         mode = defaults.mode
         frameRate = defaults.gifFrameRate
+        exportFormat = ExportMatrix.format(defaults.format, afterSelecting: defaults.mode)
+        sizePreset = defaults.sizePreset
     }
 
     // MARK: - Loading
@@ -116,10 +132,16 @@ final class EditorModel {
 
             phase = .loading("Rendering the preview")
             let built = try await StageTimer.time("cache") {
-                try await Self.buildCache(movieURL: movieURL, corrections: solved.analysis.path.corrections, sourceSize: solved.analysis.motion.size)
+                try await Self.buildCache(
+                    movieURL: movieURL, corrections: solved.analysis.path.corrections,
+                    sourceSize: solved.analysis.motion.size, crop: solved.analysis.path.crop
+                )
             }
-            cache = built.value
-            timings.record("cache", built.milliseconds)
+            cache = built.value.cache
+            content = built.value.content
+            // The cache stage includes measuring the content; report the two apart.
+            timings.record("cache", max(0, built.milliseconds - built.value.contentMilliseconds))
+            timings.record("content", built.value.contentMilliseconds)
 
             self.timings = timings
             replan()
@@ -162,11 +184,13 @@ final class EditorModel {
         do {
             let solved = try await solve(mode, movieURL: movieURL, motion: motion)
             let built = try await Self.buildCache(
-                movieURL: movieURL, corrections: solved.analysis.path.corrections, sourceSize: solved.analysis.motion.size
+                movieURL: movieURL, corrections: solved.analysis.path.corrections,
+                sourceSize: solved.analysis.motion.size, crop: solved.analysis.path.crop
             )
             // A newer request, or closing the editor, makes this result stale.
             guard !Task.isCancelled, requestedStabilization == mode, self.motion != nil else { return }
-            cache = built
+            cache = built.cache
+            content = built.content
             analysis = solved.analysis
             stabilization = mode
             replan()
@@ -182,14 +206,27 @@ final class EditorModel {
 
     /// Off the main actor: decoding and rendering ~80 frames must not freeze the UI.
     private nonisolated static func buildCache(
-        movieURL: URL, corrections: [simd_float3x3], sourceSize: CGSize
-    ) async throws -> sending StabilizedFrameCache {
+        movieURL: URL, corrections: [simd_float3x3], sourceSize: CGSize, crop: CGRect
+    ) async throws -> sending BuiltPreview {
         let asset = AVURLAsset(url: movieURL)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
             throw ClipImportError.noVideoTrack(movieURL)
         }
         let frames = try FrameSequence.make(asset: asset, track: track)
-        return try StabilizedFrameCache.build(frames: frames, corrections: corrections, sourceSize: sourceSize, longEdge: 720)
+        let cache = try StabilizedFrameCache.build(frames: frames, corrections: corrections, sourceSize: sourceSize, longEdge: 720)
+        // Measured here, off the main actor, from frames already in memory: a few small images.
+        let start = ContinuousClock.now
+        let content = cache.contentFeatures(crop: crop)
+        let elapsed = ContinuousClock.now - start
+        let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+        return BuiltPreview(cache: cache, content: content, contentMilliseconds: ms)
+    }
+
+    /// A rendered preview cache and the content measured from it.
+    private struct BuiltPreview {
+        let cache: StabilizedFrameCache
+        let content: ContentFeatures?
+        let contentMilliseconds: Double
     }
 
     /// Releases the cache and removes the extracted files. Safe to call more than once.
@@ -198,6 +235,7 @@ final class EditorModel {
         switchTask = nil
         motion = nil
         cache = nil
+        content = nil
         analysis = nil
         staged?.cleanup()
         staged = nil
@@ -261,6 +299,24 @@ final class EditorModel {
     }
 
     var hasLoop: Bool { analysis?.loop != nil }
+
+    // MARK: - Export choices (issue #32)
+
+    /// Estimated size, in bytes, of exporting with the current choices at `preset`. Pure arithmetic
+    /// over numbers already in memory, so the screen can show all three presets on every change.
+    /// Nil until the clip is open.
+    func estimatedBytes(at preset: SizePreset) -> Int? {
+        guard let analysis else { return nil }
+        return ExportSizing.estimate(
+            format: exportFormat, preset: preset, mode: mode, gifRate: frameRate, path: analysis.path,
+            frameTimes: frameTimes, loop: analysis.loop, sourceFrameRate: analysis.motion.frameRate, content: content
+        )
+    }
+
+    /// Why `format` cannot be chosen with the current playback mode, or nil when it can.
+    func unavailableReason(for format: ExportFormat) -> String? {
+        ExportMatrix.reason(format: format, mode: mode)
+    }
 
     /// Width over height of the cropped picture, so the preview is the crop's own shape.
     var previewAspectRatio: CGFloat {
