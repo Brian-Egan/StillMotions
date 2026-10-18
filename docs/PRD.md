@@ -270,9 +270,11 @@ editable state, not a final render. Resettable to automatic.
 **R-17 — Manual crop.** Adjustable rectangle, constrained to the valid stabilized region
 so the user cannot drag into black edges. Resettable to automatic.
 
-**R-18 — Failure warning.** When any §1.2 threshold fails, show a **visible but
-non-blocking** warning naming which signal failed, with trim and crop still usable and
-export still permitted.
+**R-18 — Failure warning.** When crop retention falls below its §1.2 threshold, show a
+**visible but non-blocking** warning, with trim and crop still usable and export still
+permitted. Only crop retention drives the in-app warning ([0009](decisions/0009-failure-signals.md)):
+residual motion needs optical flow, which ships only in the harness, and the loop seam flags
+most clips that look fine. Both remain harness metrics against their §1.2 thresholds.
 
 - Basis for non-blocking: the user may want the output anyway, and the thresholds are
   heuristics, not verdicts.
