@@ -123,6 +123,40 @@ final class GalleryUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["stabilizationStatus"].exists)
     }
 
+    func testSwitchingStabilizationSolvesAgainButNeverEstimatesAgain() throws {
+        launch()
+        try requireEnoughPhotos()
+        openFirstPhoto()
+
+        // [estimates, solves]: the numbers before the word "shown".
+        func counts() -> (estimates: Int, solves: Int) {
+            let label = app.staticTexts["stabilizationCounters"].label
+            let n = label.components(separatedBy: "shown")[0].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            return (n[0], n[1])
+        }
+        XCTAssertEqual(counts().estimates, 1)
+        XCTAssertEqual(counts().solves, 1)
+
+        // Each mode shows how much of the frame it keeps, before it is chosen.
+        for mode in ["off", "smooth", "locked"] {
+            XCTAssertTrue(app.staticTexts["crop-\(mode)"].label.contains("keeps"), "no crop shown for \(mode)")
+        }
+        XCTAssertEqual(app.staticTexts["crop-off"].label, "keeps 100%")
+
+        var solves = 1
+        for mode in ["Smooth", "Off", "Locked"] {
+            app.buttons[mode].tap()
+            solves += 1
+            let shown = app.staticTexts["stabilizationCounters"]
+            let settled = NSPredicate(format: "label ENDSWITH %@", "shown \(mode.lowercased())")
+            expectation(for: settled, evaluatedWith: shown)
+            waitForExpectations(timeout: 60)
+            XCTAssertEqual(counts().estimates, 1, "switching to \(mode) estimated motion again")
+            XCTAssertEqual(counts().solves, solves, "switching to \(mode) should solve exactly once")
+            XCTAssertFalse(app.staticTexts["stabilizationSwitching"].exists)
+        }
+    }
+
     func testOpeningAndClosingTheEditorRepeatedlyKeepsMemoryBoundedAndCleansUp() throws {
         launch()
         try requireEnoughPhotos()

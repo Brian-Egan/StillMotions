@@ -3,7 +3,7 @@ import CoreVideo
 import simd
 
 /// A matched point pair, when an estimator produces one. See `FrameMotion.correspondences`.
-public struct Correspondence: Equatable {
+public struct Correspondence: Equatable, Sendable {
     public let from: CGPoint
     public let to: CGPoint
 
@@ -20,7 +20,7 @@ public struct Correspondence: Equatable {
 /// `pFrame = transform * pReference`. Stabilizing this frame back onto the reference means
 /// applying `transform.inverse` — that inversion is `WarpToReferenceSolver`'s job (#12),
 /// not the estimator's.
-public struct FrameMotion {
+public struct FrameMotion: Sendable {
     public let index: Int
     public let transform: simd_float3x3
     /// Empty when the estimator does not produce correspondences (e.g. registration).

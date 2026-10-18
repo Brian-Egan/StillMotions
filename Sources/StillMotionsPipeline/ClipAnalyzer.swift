@@ -7,7 +7,7 @@ import simd
 /// The analysis half of the pipeline: from a decoded clip to per-frame motion and the
 /// signatures loop selection compares. The harness and the app call this same code.
 public enum ClipAnalyzer {
-    public struct MotionResult {
+    public struct MotionResult: Sendable {
         public let motion: [FrameMotion]
         /// Native pixel size of the clip.
         public let size: CGSize
