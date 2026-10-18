@@ -1,6 +1,6 @@
 # 0009. The three failure signals: what they can and cannot see
 
-- Status: **Proposed**. Nothing in code changes with this record; the thresholds stay as PRD §1.2 has them until the developer decides (issue #20)
+- Status: **Accepted** (option 2, by the developer, 2026-10-17). The in-app warning uses crop retention only; the seam and residual motion stay as harness metrics. The PRD §1.2 thresholds are unchanged (issue #20)
 - Date: 2026-10-16
 - Relates to: [0001](0001-motion-estimation.md), [0002](0002-camera-path-solver.md), PRD §1.2, R-18, R-22
 
@@ -74,6 +74,16 @@ cannot be met by these inputs, and nothing was tuned to make it appear to be.
    changes PRD §1.2, so it needs its own issue.
 4. **Raise the limit** (3x leaves 12 false positives of 68 but misses about two thirds of the real
    failures the seam alone catches). A blunt version of option 3.
+
+## Decision
+
+Option 2. The editor's non-blocking warning (R-18, issue #29) fires on crop retention below 60% and
+on nothing else. Residual motion is not measured in the app anyway (flow is harness-only), and the
+loop seam flagged 87% of clips that look fine. Both stay in the harness, where a person reads them
+with context, and `StabilizationAssessment` still carries all three readings. The crop-only warning
+misses clips whose problem is exposure or a dominant subject (19 of 47 real failures in the labelled
+set); a cheap in-app low-light or exposure signal could be a later issue. With the stabilization
+modes of decision 0011, the warning can point at Smooth or Off.
 
 ## What would change this
 
