@@ -17,11 +17,13 @@ public struct ExportDefaults: Equatable, Sendable {
     public var mode: PlaybackMode = .loop
     /// GIF is the only format that loops in iMessage, the primary destination (decision 0005).
     public var format: ExportFormat = .gif
+    /// The pixel sizes of Small and Medium (editable in settings, PRD R-19).
+    public var presetSizes: PresetSizes = .standard
 
     public init() {}
 }
 
-/// Persists `ExportDefaults` in `UserDefaults`. Plain and deliberately boring: four strings under
+/// Persists `ExportDefaults` in `UserDefaults`. Plain and deliberately boring: six values under
 /// one prefix, no persistence framework.
 ///
 /// Each field is read on its own. A value that is missing, or that this build no longer
@@ -45,6 +47,8 @@ public struct ExportDefaultsStore: @unchecked Sendable {
         if let value: GifFrameRate = read("gifFrameRate") { result.gifFrameRate = value }
         if let value: PlaybackMode = read("mode") { result.mode = value }
         if let value: ExportFormat = read("format") { result.format = value }
+        let small = defaults.object(forKey: key("smallLongEdge")) as? Int, medium = defaults.object(forKey: key("mediumLongEdge")) as? Int
+        result.presetSizes = PresetSizes.validated(small: small, medium: medium)
         return result
     }
 
@@ -53,11 +57,13 @@ public struct ExportDefaultsStore: @unchecked Sendable {
         defaults.set(values.gifFrameRate.rawValue, forKey: key("gifFrameRate"))
         defaults.set(values.mode.rawValue, forKey: key("mode"))
         defaults.set(values.format.rawValue, forKey: key("format"))
+        defaults.set(values.presetSizes.small, forKey: key("smallLongEdge"))
+        defaults.set(values.presetSizes.medium, forKey: key("mediumLongEdge"))
     }
 
     /// Forgets every stored choice, so `load()` returns the PRD defaults again.
     public func reset() {
-        for name in ["sizePreset", "gifFrameRate", "mode", "format"] { defaults.removeObject(forKey: key(name)) }
+        for name in ["sizePreset", "gifFrameRate", "mode", "format", "smallLongEdge", "mediumLongEdge"] { defaults.removeObject(forKey: key(name)) }
     }
 
     private func key(_ name: String) -> String { prefix + name }

@@ -25,10 +25,10 @@ public enum ExportSizing {
 
     /// The estimator's input for one set of export choices.
     public static func input(
-        format: ExportFormat, preset: SizePreset, mode: PlaybackMode, gifRate: GifFrameRate,
+        format: ExportFormat, preset: SizePreset, sizes: PresetSizes = .standard, mode: PlaybackMode, gifRate: GifFrameRate,
         path: CameraPath, frameTimes: [Double], loop: LoopSelection?, sourceFrameRate: Double, content: ContentFeatures?
     ) -> SizeInput {
-        let size = OutputSize.size(forCrop: path.crop, longEdge: preset.longEdge)
+        let size = OutputSize.size(forCrop: path.crop, longEdge: sizes.longEdge(for: preset))
         return SizeInput(
             format: format, width: Int(size.width), height: Int(size.height),
             frameCount: frameCount(format: format, mode: mode, gifRate: gifRate, frameTimes: frameTimes, loop: loop),
@@ -39,12 +39,12 @@ public enum ExportSizing {
 
     /// Estimated bytes for one set of export choices.
     public static func estimate(
-        format: ExportFormat, preset: SizePreset, mode: PlaybackMode, gifRate: GifFrameRate,
+        format: ExportFormat, preset: SizePreset, sizes: PresetSizes = .standard, mode: PlaybackMode, gifRate: GifFrameRate,
         path: CameraPath, frameTimes: [Double], loop: LoopSelection?, sourceFrameRate: Double, content: ContentFeatures?,
         estimator: SizeEstimator = SizeEstimator()
     ) -> Int {
         estimator.estimate(input(
-            format: format, preset: preset, mode: mode, gifRate: gifRate, path: path, frameTimes: frameTimes,
+            format: format, preset: preset, sizes: sizes, mode: mode, gifRate: gifRate, path: path, frameTimes: frameTimes,
             loop: loop, sourceFrameRate: sourceFrameRate, content: content
         ))
     }

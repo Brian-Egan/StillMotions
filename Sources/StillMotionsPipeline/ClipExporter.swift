@@ -12,6 +12,7 @@ public enum ClipExporter {
         movieURL: URL,
         path: CameraPath,
         preset: SizePreset,
+        sizes: PresetSizes = .standard,
         mode: PlaybackMode,
         to url: URL,
         renderer: StabilizedRenderer = StabilizedRenderer(),
@@ -30,7 +31,7 @@ public enum ClipExporter {
         // timestamped at the nominal rate would play it at the wrong speed.
         let times = try FrameSequence.presentationTimes(asset: asset, track: track)
         let frames = try FrameSequence.make(asset: asset, track: track)
-        let outputSize = OutputSize.size(forCrop: path.crop, longEdge: preset.longEdge)
+        let outputSize = OutputSize.size(forCrop: path.crop, longEdge: sizes.longEdge(for: preset))
         let nextFrame = try renderer.makeProducer(
             frames: frames, corrections: path.corrections, crop: path.crop, outputSize: outputSize
         )
@@ -50,6 +51,7 @@ public enum ClipExporter {
         movieURL: URL,
         path: CameraPath,
         preset: SizePreset,
+        sizes: PresetSizes = .standard,
         frameRate: GifFrameRate,
         mode: PlaybackMode,
         trim: Range<Int>? = nil,
@@ -64,7 +66,7 @@ public enum ClipExporter {
             throw ClipImportError.noVideoTrack(movieURL)
         }
         let sourceRate = Double(try await track.load(.nominalFrameRate))
-        let outputSize = OutputSize.size(forCrop: path.crop, longEdge: preset.longEdge)
+        let outputSize = OutputSize.size(forCrop: path.crop, longEdge: sizes.longEdge(for: preset))
         // Output ticks pick the source frame nearest in TIME, so the GIF lasts as long as the clip
         // even when the source is variable frame rate. Falls back to the nominal rate only if the
         // times do not line up with the frames.
