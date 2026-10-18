@@ -28,8 +28,21 @@ public enum RenderingError: Error, CustomStringConvertible {
 public final class StabilizedRenderer: @unchecked Sendable {
     private let context: CIContext
 
+    /// The color space every rendered buffer is written in and tagged with. Core Image works in
+    /// linear light, so a render that names no output space stores linear numbers that every
+    /// later reader takes for sRGB: mid-grey 127 came out as 54 (#90). A crossfade, which reads
+    /// those frames again, came out as 9. GIF is sRGB anyway, and wide-gamut sources are mapped
+    /// into it here.
+    static let outputColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+
     public init(context: CIContext = CIContext()) {
         self.context = context
+    }
+
+    /// Declares `buffer`'s color space, so anything that reads it later (the cache, `blend`, the
+    /// preview) interprets the numbers the way they were written.
+    private static func tag(_ buffer: CVPixelBuffer) {
+        CVBufferSetAttachment(buffer, kCVImageBufferCGColorSpaceKey, outputColorSpace, .shouldPropagate)
     }
 
     /// One stabilized, cropped frame.
@@ -73,7 +86,8 @@ public final class StabilizedRenderer: @unchecked Sendable {
         image = image.cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
 
         let target = try destination ?? Self.makeBuffer(width: width, height: height)
-        context.render(image, to: target, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: nil)
+        context.render(image, to: target, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: Self.outputColorSpace)
+        Self.tag(target)
         return target
     }
 
@@ -147,7 +161,8 @@ public final class StabilizedRenderer: @unchecked Sendable {
             kCIInputTimeKey: weight,
         ])
         let target = try Self.makeBuffer(width: width, height: height)
-        context.render(mixed, to: target, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: nil)
+        context.render(mixed, to: target, bounds: CGRect(x: 0, y: 0, width: width, height: height), colorSpace: Self.outputColorSpace)
+        Self.tag(target)
         return target
     }
 
