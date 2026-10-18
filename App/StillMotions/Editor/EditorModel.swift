@@ -231,6 +231,7 @@ final class EditorModel {
 
     /// Releases the cache and removes the extracted files. Safe to call more than once.
     func close() {
+        exporter.cancel()
         switchTask?.cancel()
         switchTask = nil
         motion = nil
@@ -310,6 +311,21 @@ final class EditorModel {
         return ExportSizing.estimate(
             format: exportFormat, preset: preset, mode: mode, gifRate: frameRate, path: analysis.path,
             frameTimes: frameTimes, loop: analysis.loop, sourceFrameRate: analysis.motion.frameRate, content: content
+        )
+    }
+
+    /// The export controller; it lives with the editor so leaving the editor can stop an export.
+    @ObservationIgnored let exporter = ExportController()
+
+    /// What an export would do with the current choices, or nil until the clip is open.
+    func exportRequest() -> ExportRequest? {
+        guard let analysis, let movieURL else { return nil }
+        return ExportRequest(
+            movieURL: movieURL, path: analysis.path, loop: analysis.loop, format: exportFormat, preset: sizePreset,
+            mode: mode, gifRate: frameRate,
+            expectedFrameCount: ExportSizing.frameCount(
+                format: exportFormat, mode: mode, gifRate: frameRate, frameTimes: frameTimes, loop: analysis.loop
+            )
         )
     }
 

@@ -213,6 +213,56 @@ final class GalleryUITests: XCTestCase {
         XCTAssertEqual(app.segmentedControls["ratePicker"].buttons.count, 3)
     }
 
+    /// "export folders on disk: N" as N.
+    private func exportFolders() -> Int? {
+        Int(app.staticTexts["exportFolders"].label.split(whereSeparator: { !$0.isNumber }).last ?? "")
+    }
+
+    func testSavingToPhotosCompletesAndLeavesNoFilesBehind() throws {
+        launch()
+        try requireEnoughPhotos()
+        // If the system asks for permission to add to Photos, allow it.
+        addUIInterruptionMonitor(withDescription: "Photos permission") { alert in
+            for label in ["Allow Full Access", "Allow", "OK"] where alert.buttons[label].exists { alert.buttons[label].tap(); return true }
+            return false
+        }
+        openFirstPhoto()
+        XCTAssertEqual(exportFolders(), 0, "nothing should be on disk before an export")
+
+        app.buttons["exportSave"].tap()
+        app.tap() // lets the interruption monitor see an alert, if there is one
+        let status = app.staticTexts["exportStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 120), "the export never finished")
+        XCTAssertTrue(status.label.contains("Saved"), status.label)
+        XCTAssertEqual(exportFolders(), 0, "the temporary file must be removed once it is saved")
+    }
+
+    func testCancellingAnExportStopsItAndLeavesNothingBehind() throws {
+        launch()
+        try requireEnoughPhotos()
+        openFirstPhoto()
+        app.buttons["preset-full"].tap() // the slowest, so there is time to cancel
+
+        app.buttons["exportShare"].tap()
+        let cancel = app.buttons["exportCancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10), "progress and Cancel should appear while exporting")
+        XCTAssertTrue(app.progressIndicators["exportProgress"].exists || app.otherElements["exportProgress"].exists, "export shows a determinate progress bar")
+        cancel.tap()
+
+        XCTAssertTrue(app.buttons["exportShare"].waitForExistence(timeout: 30), "the export controls should come back after Cancel")
+        XCTAssertFalse(app.sheets.firstMatch.exists, "a cancelled export must not open the share sheet")
+        // The controls come back at once; the job removes its folder a moment later, when the encoder
+        // notices the cancellation. The debug readout only redraws when something changes, so poke
+        // a harmless control between looks.
+        var folders = exportFolders()
+        for _ in 0..<20 where folders != 0 {
+            sleep(1)
+            app.buttons["preset-small"].tap()
+            folders = exportFolders()
+        }
+        XCTAssertEqual(folders, 0, "a cancelled export must leave no folder behind")
+    }
+
     func testOpeningAndClosingTheEditorRepeatedlyKeepsMemoryBoundedAndCleansUp() throws {
         launch()
         try requireEnoughPhotos()

@@ -21,7 +21,7 @@ public struct LoopSelectionConfig: Equatable {
 }
 
 /// One output frame of a loop: a source frame, optionally mixed with a second.
-public struct LoopFrameRecipe: Equatable {
+public struct LoopFrameRecipe: Equatable, Sendable {
     public let primary: Int
     public let secondary: Int?
     /// How much of `secondary` to mix in, 0...1. 0 when `secondary` is nil.
@@ -34,7 +34,7 @@ public struct LoopFrameRecipe: Equatable {
     }
 }
 
-public struct LoopSelection: Equatable {
+public struct LoopSelection: Equatable, Sendable {
     /// First frame of the loop.
     public let startIndex: Int
     /// The frame that matches `startIndex`. It is NOT part of the loop: playback goes
