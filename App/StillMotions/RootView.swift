@@ -4,6 +4,7 @@ import SwiftUI
 /// now it is a placeholder identifier, replaced by a real PhotoKit asset in the gallery issue (#23).
 enum Route: Hashable {
     case editor(assetID: String)
+    case settings
 }
 
 struct RootView: View {
@@ -14,10 +15,19 @@ struct RootView: View {
         NavigationStack {
             GalleryView()
                 .navigationTitle("StillMotions")
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        NavigationLink(value: Route.settings) { Image(systemName: "gearshape") }
+                            .accessibilityLabel("Settings")
+                            .accessibilityIdentifier("openSettings")
+                    }
+                }
                 .navigationDestination(for: Route.self) { route in
                     switch route {
                     case .editor(let assetID):
                         EditorView(assetID: assetID)
+                    case .settings:
+                        SettingsView()
                     }
                 }
         }

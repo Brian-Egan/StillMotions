@@ -49,6 +49,8 @@ public struct ExportRequest: Sendable {
     public var loop: LoopSelection?
     public var format: ExportFormat
     public var preset: SizePreset
+    /// The pixel sizes of Small and Medium (editable in settings).
+    public var sizes: PresetSizes
     public var mode: PlaybackMode
     public var gifRate: GifFrameRate
     /// How many frames the export will have (`ExportSizing.frameCount`), so progress can be a fraction.
@@ -56,13 +58,14 @@ public struct ExportRequest: Sendable {
 
     public init(
         movieURL: URL, path: CameraPath, loop: LoopSelection?, format: ExportFormat, preset: SizePreset,
-        mode: PlaybackMode, gifRate: GifFrameRate, expectedFrameCount: Int
+        sizes: PresetSizes = .standard, mode: PlaybackMode, gifRate: GifFrameRate, expectedFrameCount: Int
     ) {
         self.movieURL = movieURL
         self.path = path
         self.loop = loop
         self.format = format
         self.preset = preset
+        self.sizes = sizes
         self.mode = mode
         self.gifRate = gifRate
         self.expectedFrameCount = expectedFrameCount
@@ -104,13 +107,13 @@ public enum ExportJob {
             switch request.format {
             case .gif:
                 let result = try await ClipExporter.exportGIF(
-                    movieURL: request.movieURL, path: request.path, preset: request.preset, frameRate: request.gifRate,
+                    movieURL: request.movieURL, path: request.path, preset: request.preset, sizes: request.sizes, frameRate: request.gifRate,
                     mode: request.mode, loop: request.mode == .loop ? request.loop : nil, to: url, onFrame: onFrame
                 )
                 (width, height, frames) = (result.width, result.height, result.frameCount)
             case .mp4:
                 let result = try await ClipExporter.exportVideo(
-                    movieURL: request.movieURL, path: request.path, preset: request.preset, mode: request.mode, to: url, onFrame: onFrame
+                    movieURL: request.movieURL, path: request.path, preset: request.preset, sizes: request.sizes, mode: request.mode, to: url, onFrame: onFrame
                 )
                 (width, height, frames) = (result.width, result.height, result.frameCount)
             }

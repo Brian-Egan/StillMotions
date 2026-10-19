@@ -109,7 +109,7 @@ struct ExportOptionsView: View {
             ForEach(SizePreset.allCases, id: \.self) { preset in
                 Button { model.sizePreset = preset } label: {
                     VStack(spacing: 2) {
-                        Text(Self.name(of: preset))
+                        Text(name(of: preset))
                         Text(estimate(at: preset)).font(.caption2).opacity(0.8)
                     }
                     .frame(maxWidth: .infinity)
@@ -137,10 +137,10 @@ struct ExportOptionsView: View {
         }
     }
 
-    private static func name(of preset: SizePreset) -> String {
+    private func name(of preset: SizePreset) -> String {
         switch preset {
-        case .small: return "Small \(SizePreset.small.longEdge ?? 0)"
-        case .medium: return "Medium \(SizePreset.medium.longEdge ?? 0)"
+        case .small: return "Small \(model.presetSizes.small)"
+        case .medium: return "Medium \(model.presetSizes.medium)"
         case .full: return "Full (native)"
         }
     }

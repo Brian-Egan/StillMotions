@@ -263,6 +263,57 @@ final class GalleryUITests: XCTestCase {
         XCTAssertEqual(folders, 0, "a cancelled export must leave no folder behind")
     }
 
+    /// Replaces the text of a settings size field and submits it.
+    private func typeSize(_ value: String, into id: String) {
+        let field = app.textFields[id]
+        // Tap at the right-hand end: the text is right-aligned, so that puts the cursor after it and
+        // the deletes below remove it. A tap in the middle leaves the cursor mid-number.
+        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 6))
+        field.typeText(value + "\n")
+    }
+
+    func testSettingsKeepSizesWithinBoundsPersistAndChangeWhatTheEditorOffers() throws {
+        launch()
+        try requireEnoughPhotos()
+        app.buttons["openSettings"].tap()
+        XCTAssertTrue(app.textFields["settingsSmall"].waitForExistence(timeout: 5))
+        // The simulator keeps settings between runs, so start from the shipped values.
+        app.buttons["settingsReset"].tap()
+        XCTAssertEqual(app.textFields["settingsSmall"].value as? String, "480")
+        XCTAssertEqual(app.textFields["settingsMedium"].value as? String, "720")
+
+        // Out of bounds: changed, with the reason on screen.
+        typeSize("50", into: "settingsSmall")
+        XCTAssertTrue(app.staticTexts["settingsSizeNote"].waitForExistence(timeout: 5), "an out-of-range size needs an explanation")
+        XCTAssertTrue(app.staticTexts["settingsSizeNote"].label.contains("240"), "note was: \(app.staticTexts["settingsSizeNote"].label) | field: \(app.textFields["settingsSmall"].value as? String ?? "nil")")
+        XCTAssertEqual(app.textFields["settingsSmall"].value as? String, "240")
+
+        // In bounds: accepted, no note.
+        typeSize("600", into: "settingsSmall")
+        XCTAssertEqual(app.textFields["settingsSmall"].value as? String, "600")
+        XCTAssertFalse(app.staticTexts["settingsSizeNote"].exists)
+
+        // Survives a relaunch.
+        app.terminate()
+        launch()
+        try requireEnoughPhotos()
+        app.buttons["openSettings"].tap()
+        XCTAssertEqual(app.textFields["settingsSmall"].value as? String, "600", "the size should persist across launches")
+        app.navigationBars.buttons.firstMatch.tap()
+
+        // The editor offers the edited size.
+        openFirstPhoto()
+        XCTAssertTrue(app.buttons["preset-small"].label.contains("Small 600"), app.buttons["preset-small"].label)
+        app.navigationBars.buttons.firstMatch.tap()
+
+        // Reset restores exactly the shipped values.
+        app.buttons["openSettings"].tap()
+        app.buttons["settingsReset"].tap()
+        XCTAssertEqual(app.textFields["settingsSmall"].value as? String, "480")
+        XCTAssertEqual(app.textFields["settingsMedium"].value as? String, "720")
+    }
+
     func testOpeningAndClosingTheEditorRepeatedlyKeepsMemoryBoundedAndCleansUp() throws {
         launch()
         try requireEnoughPhotos()
