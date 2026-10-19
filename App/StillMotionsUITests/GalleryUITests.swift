@@ -143,8 +143,14 @@ final class GalleryUITests: XCTestCase {
         }
         XCTAssertEqual(app.staticTexts["crop-off"].label, "keeps 100%")
 
+        // A clip where Locked would keep under 60% of the frame starts in Smooth (#98), so do not assume
+        // which one is showing. Walk the three in an order where every tap changes the stabilization.
+        let startedIn = app.staticTexts["stabilizationCounters"].label.components(separatedBy: "shown ").last ?? ""
+        let cycle = ["Smooth", "Off", "Locked"]
+        let first = cycle.firstIndex { $0.lowercased() != startedIn } ?? 0
         var solves = 1
-        for mode in ["Smooth", "Off", "Locked"] {
+        for step in 0..<3 {
+            let mode = cycle[(first + step) % 3]
             app.buttons[mode].tap()
             solves += 1
             let shown = app.staticTexts["stabilizationCounters"]

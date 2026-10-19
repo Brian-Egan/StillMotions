@@ -32,20 +32,21 @@ enum PolicyStudy {
     static var solvers: [(name: String, solver: any CameraPathSolver)] { [
         ("locked", WarpToReferenceSolver()),
         ("smooth-8", SmoothedPathSolver(sigmaFrames: 8)),
-        ("smooth-10", SmoothedPathSolver(sigmaFrames: 10)),
-        ("smooth-12", SmoothedPathSolver(sigmaFrames: 12)),
+        ("smooth-12", SmoothedPathSolver()),   // the shipped strength
         ("smooth-16", SmoothedPathSolver(sigmaFrames: 16)),
     ] }
 
     static func run(arguments: [String]) async throws {
         var fixtures: URL?, out: URL?
         var limit: Int?, every = 1
+        var withMasking = true
         var i = 0
         while i < arguments.count {
             switch arguments[i] {
             case "--fixtures": i += 1; fixtures = URL(fileURLWithPath: arguments[i], isDirectory: true)
             case "--out": i += 1; out = URL(fileURLWithPath: arguments[i], isDirectory: true)
             case "--limit": i += 1; limit = Int(arguments[i])
+            case "--no-masked": withMasking = false
             case "--every": i += 1; every = max(1, Int(arguments[i]) ?? 1)
             default: throw SpikeError("unknown argument '\(arguments[i])'\nusage: stillmotions-harness policy-study --fixtures <dir> --out <dir> [--limit N]")
             }
@@ -60,7 +61,7 @@ enum PolicyStudy {
         var rows: [Row] = []
         for (index, clip) in clips.enumerated() {
             do {
-                let row = try await study(clip: clip)
+                let row = try await study(clip: clip, withMasking: withMasking)
                 rows.append(row)
                 print(String(format: "[%d/%d] %@ people %.0f%%  off %.2f | smooth-8 %@ -> %@",
                              index + 1, clips.count, clip.name, row.personCoverage * 100, row.off.jitter ?? -1,
@@ -84,7 +85,7 @@ enum PolicyStudy {
         try encoder.encode(rows).write(to: out.appendingPathComponent("rows.json"))
     }
 
-    static func study(clip: ClipInput) async throws -> Row {
+    static func study(clip: ClipInput, withMasking: Bool = true) async throws -> Row {
         let renderer = StabilizedRenderer()
         let masker = SubjectMasker(configuration: .init(analysisLongEdge: 360, usesForegroundInstances: false))
         let referenceIndex = try await clip.referenceIndex()
@@ -108,7 +109,8 @@ enum PolicyStudy {
             return (motion, Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18)
         }
         let (plain, plainSeconds) = try await estimate(masked: false)
-        let (masked, maskedSeconds) = try await estimate(masked: true)
+        // Masked estimates are the expensive part; `--no-masked` skips them and reports the unmasked motion twice.
+        let (masked, maskedSeconds) = withMasking ? try await estimate(masked: true) : (plain, 0)
 
         let off = try await ReferenceCompare.measure(
             clip: clip, corrections: Array(repeating: matrix_identity_float3x3, count: plain.motion.count),
@@ -131,7 +133,7 @@ enum PolicyStudy {
         return Row(
             clip: clip.name, personCoverage: coverage, frames: plain.motion.count,
             off: Outcome(cropKept: 1, jitter: off.jitter, netPan: off.netPan),
-            unmasked: await outcomes(for: plain), masked: await outcomes(for: masked),
+            unmasked: await outcomes(for: plain), masked: withMasking ? await outcomes(for: masked) : [:],
             estimateSecondsUnmasked: plainSeconds, estimateSecondsMasked: maskedSeconds,
             estimationFailuresUnmasked: plain.estimationFailures, estimationFailuresMasked: masked.estimationFailures
         )

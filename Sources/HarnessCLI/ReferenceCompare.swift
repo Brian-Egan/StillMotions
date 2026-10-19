@@ -47,7 +47,7 @@ enum ReferenceCompare {
                 .filter { $0.hasSuffix(".motionstills-output.gif") || $0.hasSuffix(".reference.gif") }.sorted()
             guard let referenceName = references.first else { continue }
             print("\(clip.name): reference \(referenceName)")
-            rows += try await compare(clip: clip, referenceGIF: folder.appendingPathComponent(referenceName), diagnose: diagnose, masker: masking ? SubjectMasker(configuration: .init(analysisLongEdge: maskEdge, usesForegroundInstances: !peopleOnly)) : nil)
+            rows += try await compare(clip: clip, referenceGIF: folder.appendingPathComponent(referenceName), out: out, diagnose: diagnose, masker: masking ? SubjectMasker(configuration: .init(analysisLongEdge: maskEdge, usesForegroundInstances: !peopleOnly)) : nil)
         }
         guard !rows.isEmpty else { throw SpikeError("no clip with a *.motionstills-output.gif or *.reference.gif beside it in \(fixtures.path)") }
 
@@ -59,7 +59,7 @@ enum ReferenceCompare {
         print("\n" + table)
     }
 
-    static func compare(clip: ClipInput, referenceGIF: URL, diagnose: Bool, masker: SubjectMasker?) async throws -> [Row] {
+    static func compare(clip: ClipInput, referenceGIF: URL, out: URL, diagnose: Bool, masker: SubjectMasker?) async throws -> [Row] {
         let renderer = StabilizedRenderer()
         var rows: [Row] = []
 
@@ -87,6 +87,33 @@ enum ReferenceCompare {
             )
             let result = try await measure(clip: clip, corrections: analysis.path.corrections, crop: analysis.path.crop, times: motion.frameTimes, renderer: renderer)
             rows.append(Row(clip: clip.name, name: variant.name, cropKept: analysis.path.cropRetention, motion: result))
+        }
+        rows += try await appExports(clip: clip, motion: motion, out: out, renderer: renderer)
+        return rows
+    }
+
+    /// What the app would hand over by default: the mode it starts the clip in, exported as a Loop GIF at
+    /// Medium and 20 fps, then measured from the GIF file itself (so the loop trim and the frame-rate
+    /// decimation are in the numbers, as they are for a viewer).
+    static func appExports(clip: ClipInput, motion: ClipAnalyzer.MotionResult, out: URL, renderer: StabilizedRenderer) async throws -> [Row] {
+        let recommended = ClipAnalyzer.recommendedMode(cropRetentions: ClipAnalyzer.cropRetentions(motion: motion))
+        var rows: [Row] = []
+        for mode in [recommended] + StabilizationMode.allCases.filter({ $0 != recommended }) {
+            let analysis = try await ClipAnalyzer.analyze(movieURL: clip.movieURL, motion: motion, mode: mode, renderer: renderer)
+            // Loop trims the clip to a window that repeats cleanly and crossfades its seam; Once plays the
+            // whole clip, which is what the reference GIF does, so it is the fair comparison.
+            for playback in [PlaybackMode.once, .loop] {
+                let url = out.appendingPathComponent("\(clip.name)-\(mode.rawValue)-\(playback.rawValue).gif")
+                let exported = try await ClipExporter.exportGIF(
+                    movieURL: clip.movieURL, path: analysis.path, preset: .medium, frameRate: .fps20, mode: playback,
+                    loop: playback == .loop ? analysis.loop : nil, to: url, renderer: renderer
+                )
+                let gif = OutputMotion.grayFrames(ofGIF: url)
+                let measured = OutputMotion.measure(frames: gif.frames, times: gif.times)
+                let seconds = gif.times.last.map { $0 + 0.05 } ?? 0
+                let label = (mode == recommended ? "APP DEFAULT " : "app ") + "\(mode.displayName) \(playback.rawValue) GIF (\(exported.frameCount) fr, \(String(format: "%.2f", seconds)) s)"
+                rows.append(Row(clip: clip.name, name: label, cropKept: analysis.path.cropRetention, motion: measured))
+            }
         }
         return rows
     }

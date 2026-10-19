@@ -1,6 +1,6 @@
 # 0011. Stabilization modes: Off, Smooth, Locked
 
-- Status: **Accepted** (issue #84)
+- Status: **Accepted** (issue #84). Amended by [0013](0013-smooth-ends-and-pan-heavy-clips.md): Smooth's default sigma is 12, its path is continued along a fitted line at the ends, and a clip where Locked would keep under 60% starts in Smooth
 - Date: 2026-10-17
 - Relates to: [0002](0002-camera-path-solver.md), [0009](0009-failure-signals.md), PRD R-7a
 

@@ -35,13 +35,15 @@ import simd
 /// This is deliberately not the L1-optimal solver of decision 0002 / issue #21: a Gaussian over the path is
 /// a few dozen lines, has two numbers to tune, and needs no optimizer.
 public struct SmoothedPathSolver: CameraPathSolver {
-    /// Standard deviation of the Gaussian, in frames. A clip at about 29 fps with sigma 8 keeps
-    /// motion slower than roughly half a hertz and removes what is faster.
+    /// Standard deviation of the Gaussian, in frames. A clip at about 29 fps with sigma 12 keeps
+    /// motion slower than roughly a third of a hertz and removes what is faster. Raised from 8 in #98:
+    /// across 118 real clips a stronger filter took the jitter left from 0.47 to 0.41 of the original's
+    /// for under two points of crop, and past 12 it stopped helping (decision 0013).
     public var sigmaFrames: Double
     /// The most any corner of any frame may be moved, as a fraction of the frame's diagonal.
     public var maxMoveFraction: Double
 
-    public static let defaultSigmaFrames = 8.0
+    public static let defaultSigmaFrames = 12.0
     public static let defaultMaxMoveFraction = 0.06
 
     public init(
