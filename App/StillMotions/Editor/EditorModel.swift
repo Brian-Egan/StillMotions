@@ -61,6 +61,8 @@ final class EditorModel {
     /// The export choices (issue #32). Nothing exports from here; the export itself is #33.
     var exportFormat: ExportFormat
     var sizePreset: SizePreset
+    /// The pixel sizes of Small and Medium, as set in Settings when this photo was opened.
+    let presetSizes: PresetSizes
 
     @ObservationIgnored private let assetID: String
     @ObservationIgnored private var cache: StabilizedFrameCache?
@@ -80,6 +82,7 @@ final class EditorModel {
         frameRate = defaults.gifFrameRate
         exportFormat = ExportMatrix.format(defaults.format, afterSelecting: defaults.mode)
         sizePreset = defaults.sizePreset
+        presetSizes = defaults.presetSizes
     }
 
     // MARK: - Loading
@@ -309,7 +312,7 @@ final class EditorModel {
     func estimatedBytes(at preset: SizePreset) -> Int? {
         guard let analysis else { return nil }
         return ExportSizing.estimate(
-            format: exportFormat, preset: preset, mode: mode, gifRate: frameRate, path: analysis.path,
+            format: exportFormat, preset: preset, sizes: presetSizes, mode: mode, gifRate: frameRate, path: analysis.path,
             frameTimes: frameTimes, loop: analysis.loop, sourceFrameRate: analysis.motion.frameRate, content: content
         )
     }
@@ -321,7 +324,7 @@ final class EditorModel {
     func exportRequest() -> ExportRequest? {
         guard let analysis, let movieURL else { return nil }
         return ExportRequest(
-            movieURL: movieURL, path: analysis.path, loop: analysis.loop, format: exportFormat, preset: sizePreset,
+            movieURL: movieURL, path: analysis.path, loop: analysis.loop, format: exportFormat, preset: sizePreset, sizes: presetSizes,
             mode: mode, gifRate: frameRate,
             expectedFrameCount: ExportSizing.frameCount(
                 format: exportFormat, mode: mode, gifRate: frameRate, frameTimes: frameTimes, loop: analysis.loop
