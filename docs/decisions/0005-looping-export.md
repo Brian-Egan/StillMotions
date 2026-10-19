@@ -109,9 +109,45 @@ loops if the player repeats it." Internally honest and the most flexible. Reject
 because it puts a Loop option in front of the user that does nothing in most destinations,
 which is the same problem as the best-effort atom with extra steps.
 
+## Experiment result: the LOOP atom does nothing (2026-10-19, issue #35)
+
+The phase-5 device check was run on an iPhone 14 Pro with Photos > Loop Videos turned off.
+It tested the folklore this record called unverified-to-false, and the folklore is false.
+
+Method:
+
+- The app exported one clip as MP4 (HEVC, 480x360, 2.9 s, Small preset, Once mode).
+- A copy was made with a `LOOP` atom of value 0 written under `moov.udta`. The atom was
+  confirmed present by reading the file's bytes, and the copy was 20 bytes larger than the
+  original (a new `udta` box, 8 bytes, holding the 12-byte atom). The unmodified export was
+  the control, so the two files differed only by that atom.
+- Both files were checked in Messages and in Photos.
+
+Results:
+
+| Route to the phone | Destination | Plain MP4 | MP4 with `LOOP` |
+| --- | --- | --- | --- |
+| iMessage from a laptop | Messages | does not loop | does not loop |
+| iMessage from a laptop | Photos (after saving) | does not loop | does not loop |
+| iCloud Drive, opened in Files, saved to Photos | Photos | does not loop | does not loop |
+
+The two files behaved the same everywhere. The iCloud Drive route matters because it does
+not re-encode, so it shows that Photos ignores the atom when the atom is present, rather
+than never receiving it. The iMessage route may have rewritten the file, and whether the
+atom survived transit through Messages was not checked. Messages did not loop either file.
+
+Limits of the test: only the value 0 (normal looping) was tried, not 1 (palindromic), and
+AirDrop was not used. Neither limit changes the conclusion for the product, which is that
+no route the app controls makes an MP4 loop for a recipient.
+
+Conclusion: the decision stands. Loop stays GIF-only, a looping MP4 export is not built,
+and no `LOOP` atom is written.
+
 ## What would change this
 
-- The `LOOP` atom experiment succeeding in iMessage: amend this record, add the format.
+- Messages or Photos honouring the `LOOP` atom in a future iOS release: rerun this
+  experiment, and if it loops, amend this record and add the format. As of 2026-10-19 it
+  does not.
 - Apple fixing HEICS frame-timing encoding *and* Messages animating `.heics` inline:
   would offer a genuinely better-quality looping format than GIF.
 - Messages gaining autoloop for short videos: makes the whole question moot.
