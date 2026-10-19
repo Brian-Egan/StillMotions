@@ -53,14 +53,20 @@ private struct EditorContent: View {
             case .ready:
                 PreviewView(model: model)
                     .aspectRatio(preview: model)
+                    .frame(maxHeight: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                controls
-                Text(model.stabilizationStatus)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .accessibilityIdentifier("stabilizationStatus")
-                Spacer(minLength: 0)
+                // The controls scroll under the preview, which stays in view.
+                ScrollView {
+                    VStack(spacing: 16) {
+                        controls
+                        Text(model.stabilizationStatus)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .accessibilityIdentifier("stabilizationStatus")
+                        ExportOptionsView(model: model)
+                    }
+                }
             }
             // Which photo this is, for the tap-goes-to-the-right-photo check, and the debug counters.
             Text(takenDate).font(.caption2).foregroundStyle(.tertiary).accessibilityIdentifier("editorTakenDate")

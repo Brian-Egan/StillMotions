@@ -13,9 +13,10 @@ import os
 /// Stages, in order: `stage` (extract the files from the library), `import` (read the clip's
 /// frame times), `estimate` (decode and register every frame; decode is inside this), `solve`,
 /// `loopSelection` (decodes and renders again to compare frames), `cache` (decode and render the
-/// 720 px stabilized frames), `firstFrame` (until the first preview frame is on screen).
+/// 720 px stabilized frames), `content` (measure how hard the clip is to compress, for the size
+/// estimate), `firstFrame` (until the first preview frame is on screen).
 struct PreviewTimings: Equatable {
-    static let stageOrder = ["stage", "import", "estimate", "solve", "loopSelection", "cache", "firstFrame"]
+    static let stageOrder = ["stage", "import", "estimate", "solve", "loopSelection", "cache", "content", "firstFrame"]
 
     private(set) var milliseconds: [String: Double] = [:]
 
