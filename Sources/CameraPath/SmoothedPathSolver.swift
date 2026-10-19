@@ -96,24 +96,34 @@ public struct SmoothedPathSolver: CameraPathSolver {
         ))
     }
 
-    /// Gaussian smoothing, entry by entry, over frame index. At the ends the kernel is cut off and
-    /// renormalized, so the first and last frames are averaged from the frames that exist rather than
-    /// pulled toward zero. A convex average, so a constant path stays exactly constant.
+    /// Gaussian smoothing, entry by entry, over frame index.
+    ///
+    /// **Past the ends the path is extended by reflecting it through the end point** (`2 * end - inside`),
+    /// not by cutting the kernel off. Cutting it off averages the first and last frames from one side only,
+    /// which drags them toward the middle of the clip: on a path that trends (a zoom, a roll, a pan) the
+    /// smoothed value then lags the real one by about `sigma` frames of that trend, and the correction has
+    /// to shrink or turn whole frames to make up for it. On a selfie clip whose scale falls from 1.29 to
+    /// 0.89 that cost a quarter of the frame (issue #98). A reflection through the end point continues any
+    /// straight-line trend exactly, so a steady zoom or pan is left alone right up to the first and last
+    /// frame. Where the path is genuinely flat the reflection is flat too, so a constant path stays constant.
     static func smooth(_ matrices: [simd_double3x3], sigma: Double) -> [simd_double3x3] {
-        guard matrices.count > 1, sigma > 0 else { return matrices }
+        let count = matrices.count
+        guard count > 1, sigma > 0 else { return matrices }
         let radius = max(1, Int((3 * sigma).rounded(.up)))
         let kernel = (-radius...radius).map { exp(-0.5 * Double($0 * $0) / (sigma * sigma)) }
-        return (0..<matrices.count).map { i in
+        let total = kernel.reduce(0, +)
+
+        /// The path at any index, extended past the ends by point reflection. A reflection that would
+        /// itself fall outside a very short clip is held at the nearest frame.
+        func extended(_ j: Int) -> simd_double3x3 {
+            if j < 0 { return matrices[0] * 2 - matrices[min(count - 1, -j)] }
+            if j >= count { return matrices[count - 1] * 2 - matrices[max(0, 2 * (count - 1) - j)] }
+            return matrices[j]
+        }
+        return (0..<count).map { i in
             var sum = simd_double3x3(0)
-            var weight = 0.0
-            for k in -radius...radius {
-                let j = i + k
-                guard j >= 0, j < matrices.count else { continue }
-                let w = kernel[k + radius]
-                sum += matrices[j] * w
-                weight += w
-            }
-            return sum * (1 / weight)
+            for k in -radius...radius { sum += extended(i + k) * kernel[k + radius] }
+            return sum * (1 / total)
         }
     }
 

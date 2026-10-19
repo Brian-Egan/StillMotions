@@ -6,6 +6,7 @@ import Foundation
 //   stillmotions-harness generate-fixtures --out <dir>        regenerate the synthetic clips
 //   stillmotions-harness benchmark-estimators ...             the decision 0001 measurement
 //   stillmotions-harness compare-stabilization ...            off / smooth / locked side by side (#84)
+//   stillmotions-harness reference-compare ...                our output vs another app's GIF, by the frames (#98)
 //   stillmotions-harness estimate-accuracy ...                export-size estimate vs real files (#31)
 
 func fail(_ message: String) -> Never {
@@ -46,6 +47,18 @@ case "compare-stabilization":
         try await CompareStabilization.run(arguments: Array(arguments.dropFirst(2)))
     } catch {
         fail("compare-stabilization failed: \(error)")
+    }
+case "policy-study":
+    do {
+        try await PolicyStudy.run(arguments: Array(arguments.dropFirst(2)))
+    } catch {
+        fail("policy-study failed: \(error)")
+    }
+case "reference-compare":
+    do {
+        try await ReferenceCompare.run(arguments: Array(arguments.dropFirst(2)))
+    } catch {
+        fail("reference-compare failed: \(error)")
     }
 case "estimate-accuracy":
     do {
