@@ -38,6 +38,9 @@ final class EditorModel {
     /// The stabilization the user last asked for. Differs from `stabilization` only while a
     /// switch is being solved.
     private(set) var requestedStabilization: StabilizationMode = .default
+    /// Set when the editor chose a gentler stabilization than the default, and why; cleared once the user
+    /// picks one themselves.
+    private(set) var automaticChoiceNote: String?
     /// How much of the frame each stabilization keeps for this clip, shown next to the control.
     private(set) var cropByStabilization: [StabilizationMode: Double] = [:]
     /// How many times the playback plan was rebuilt (mode and rate changes).
@@ -128,6 +131,13 @@ final class EditorModel {
             motion = estimated.value
             self.movieURL = movieURL
             cropByStabilization = ClipAnalyzer.cropRetentions(motion: estimated.value)
+            // Start in Locked unless it would keep under 60% of the frame (issue #98).
+            let start = ClipAnalyzer.recommendedMode(cropRetentions: cropByStabilization)
+            if start != stabilization {
+                automaticChoiceNote = "Locked would keep only \(Int(((cropByStabilization[.locked] ?? 0) * 100).rounded()))% of the frame, so this photo starts in \(start.displayName). You can still choose Locked."
+            }
+            stabilization = start
+            requestedStabilization = start
 
             let solved = try await solve(stabilization, movieURL: movieURL, motion: estimated.value)
             for (stage, ms) in solved.stageTimes { timings.record(stage, ms) }
@@ -176,6 +186,7 @@ final class EditorModel {
     /// cache is ready, then everything swaps at once.
     func selectStabilization(_ mode: StabilizationMode) {
         guard phase == .ready, mode != requestedStabilization else { return }
+        automaticChoiceNote = nil
         requestedStabilization = mode
         switchTask?.cancel()
         switchTask = Task { await applyStabilization(mode) }

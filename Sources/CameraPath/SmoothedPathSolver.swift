@@ -98,14 +98,17 @@ public struct SmoothedPathSolver: CameraPathSolver {
 
     /// Gaussian smoothing, entry by entry, over frame index.
     ///
-    /// **Past the ends the path is extended by reflecting it through the end point** (`2 * end - inside`),
-    /// not by cutting the kernel off. Cutting it off averages the first and last frames from one side only,
-    /// which drags them toward the middle of the clip: on a path that trends (a zoom, a roll, a pan) the
-    /// smoothed value then lags the real one by about `sigma` frames of that trend, and the correction has
-    /// to shrink or turn whole frames to make up for it. On a selfie clip whose scale falls from 1.29 to
-    /// 0.89 that cost a quarter of the frame (issue #98). A reflection through the end point continues any
-    /// straight-line trend exactly, so a steady zoom or pan is left alone right up to the first and last
-    /// frame. Where the path is genuinely flat the reflection is flat too, so a constant path stays constant.
+    /// **Past the ends the path is continued along a straight line fitted to its last few frames**, not
+    /// cut off. Cutting the kernel off averages the first and last frames from one side only, which drags
+    /// them toward the middle of the clip: on a path that trends (a zoom, a roll, a pan) the smoothed
+    /// value then lags the real one by about `sigma` frames of that trend, and the correction has to
+    /// shrink or turn whole frames to make up for it. On a selfie clip whose scale falls from 1.29 to
+    /// 0.89 that cost a quarter of the frame (issue #98). A straight-line continuation leaves any steady
+    /// zoom, roll or pan alone right up to the first and last frame, and a flat path is continued flat.
+    ///
+    /// The line is fitted over `sigma` frames, not taken from the single end sample. Reflecting through
+    /// the end sample would also keep a trend, but it doubles any noise in that one sample, and on a
+    /// nearly steady clip that made Smooth keep slightly LESS of the frame than Locked.
     static func smooth(_ matrices: [simd_double3x3], sigma: Double) -> [simd_double3x3] {
         let count = matrices.count
         guard count > 1, sigma > 0 else { return matrices }
@@ -113,11 +116,29 @@ public struct SmoothedPathSolver: CameraPathSolver {
         let kernel = (-radius...radius).map { exp(-0.5 * Double($0 * $0) / (sigma * sigma)) }
         let total = kernel.reduce(0, +)
 
-        /// The path at any index, extended past the ends by point reflection. A reflection that would
-        /// itself fall outside a very short clip is held at the nearest frame.
+        /// The least-squares line through `matrices[range]`, entry by entry: value(i) = intercept + slope * i.
+        func line(_ range: Range<Int>) -> (intercept: simd_double3x3, slope: simd_double3x3) {
+            let n = Double(range.count)
+            let meanIndex = Double(range.lowerBound + range.upperBound - 1) / 2
+            var mean = simd_double3x3(0)
+            for k in range { mean += matrices[k] * (1 / n) }
+            var covariance = simd_double3x3(0)
+            var variance = 0.0
+            for k in range {
+                let d = Double(k) - meanIndex
+                covariance += (matrices[k] - mean) * d
+                variance += d * d
+            }
+            let slope = variance > 0 ? covariance * (1 / variance) : simd_double3x3(0)
+            return (mean - slope * meanIndex, slope)
+        }
+        let window = min(count, max(4, Int(sigma.rounded())))
+        let head = line(0..<window)
+        let tail = line((count - window)..<count)
+
         func extended(_ j: Int) -> simd_double3x3 {
-            if j < 0 { return matrices[0] * 2 - matrices[min(count - 1, -j)] }
-            if j >= count { return matrices[count - 1] * 2 - matrices[max(0, 2 * (count - 1) - j)] }
+            if j < 0 { return head.intercept + head.slope * Double(j) }
+            if j >= count { return tail.intercept + tail.slope * Double(j) }
             return matrices[j]
         }
         return (0..<count).map { i in

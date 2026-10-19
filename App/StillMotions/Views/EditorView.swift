@@ -127,6 +127,10 @@ private struct EditorContent: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
 
+            if let note = model.automaticChoiceNote {
+                Text(note).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .accessibilityIdentifier("stabilizationAutoNote")
+            }
             if model.requestedStabilization != model.stabilization {
                 Text("Switching to \(model.requestedStabilization.displayName)…")
                     .font(.caption).foregroundStyle(.secondary)

@@ -32,18 +32,21 @@ enum PolicyStudy {
     static var solvers: [(name: String, solver: any CameraPathSolver)] { [
         ("locked", WarpToReferenceSolver()),
         ("smooth-8", SmoothedPathSolver(sigmaFrames: 8)),
+        ("smooth-10", SmoothedPathSolver(sigmaFrames: 10)),
+        ("smooth-12", SmoothedPathSolver(sigmaFrames: 12)),
         ("smooth-16", SmoothedPathSolver(sigmaFrames: 16)),
     ] }
 
     static func run(arguments: [String]) async throws {
         var fixtures: URL?, out: URL?
-        var limit: Int?
+        var limit: Int?, every = 1
         var i = 0
         while i < arguments.count {
             switch arguments[i] {
             case "--fixtures": i += 1; fixtures = URL(fileURLWithPath: arguments[i], isDirectory: true)
             case "--out": i += 1; out = URL(fileURLWithPath: arguments[i], isDirectory: true)
             case "--limit": i += 1; limit = Int(arguments[i])
+            case "--every": i += 1; every = max(1, Int(arguments[i]) ?? 1)
             default: throw SpikeError("unknown argument '\(arguments[i])'\nusage: stillmotions-harness policy-study --fixtures <dir> --out <dir> [--limit N]")
             }
             i += 1
@@ -51,6 +54,7 @@ enum PolicyStudy {
         guard let fixtures, let out else { throw SpikeError("--fixtures and --out are required") }
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         var clips = try ClipLocator.find(in: fixtures)
+        if every > 1 { clips = clips.enumerated().filter { $0.offset % every == 0 }.map(\.element) }
         if let limit { clips = Array(clips.prefix(limit)) }
 
         var rows: [Row] = []
