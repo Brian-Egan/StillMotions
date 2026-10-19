@@ -17,11 +17,65 @@ struct ExportOptionsView: View {
             Text(sizeLine)
                 .font(.subheadline.weight(.medium))
                 .accessibilityIdentifier("estimatedSize")
+            exportControls
             if model.exportFormat == .mp4 {
                 Text("An MP4 keeps the clip's own frame rate. The GIF frame rate above only sets how this preview plays.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .accessibilityIdentifier("rateNote")
             }
+        }
+    }
+
+    // MARK: - Export
+
+    /// Nothing exports until one of these is tapped. While one runs, progress and Cancel replace them.
+    private var exportControls: some View {
+        VStack(spacing: 8) {
+            if case .exporting(let fraction) = model.exporter.state {
+                ProgressView(value: fraction) { Text("Exporting… \(Int((fraction * 100).rounded()))%").font(.caption) }
+                    .accessibilityIdentifier("exportProgress")
+                Button("Cancel", role: .cancel) { model.exporter.cancel() }
+                    .accessibilityIdentifier("exportCancel")
+            } else {
+                HStack(spacing: 8) {
+                    Button { start(.share) } label: { Label("Share", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity) }
+                        .accessibilityIdentifier("exportShare")
+                    Button { start(.photos) } label: { Label("Save to Photos", systemImage: "photo.badge.plus").frame(maxWidth: .infinity) }
+                        .accessibilityIdentifier("exportSave")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.exporter.isBusy)
+            }
+            if let status = statusText {
+                Text(status).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .accessibilityIdentifier("exportStatus")
+            }
+            #if DEBUG
+            Text("export folders on disk: \(model.exporter.folderCount)")
+                .font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                .accessibilityIdentifier("exportFolders")
+            #endif
+        }
+        .sheet(isPresented: Binding(get: { model.exporter.shareFile != nil }, set: { if !$0 { model.exporter.shareFinished() } })) {
+            if let file = model.exporter.shareFile {
+                ShareSheet(url: file.url) { model.exporter.shareFinished() }
+                    .presentationDetents([.medium, .large])
+            }
+        }
+    }
+
+    private func start(_ destination: ExportController.Destination) {
+        model.exporter.dismissStatus()
+        guard let request = model.exportRequest() else { return }
+        model.exporter.start(request, to: destination)
+    }
+
+    private var statusText: String? {
+        switch model.exporter.state {
+        case .saved: return "Saved to Photos."
+        case .failed(let message): return message
+        case .saving: return "Saving to Photos…"
+        case .idle, .exporting: return nil
         }
     }
 

@@ -3,7 +3,7 @@ import Foundation
 import simd
 
 /// The result of solving the virtual camera (ARCHITECTURE §4, decision 0002).
-public struct CameraPath {
+public struct CameraPath: Sendable {
     /// One corrective transform per input `FrameMotion`, in the same order. Applying
     /// `corrections[i]` to frame `i` places its content where the reference frame has it.
     public let corrections: [simd_float3x3]

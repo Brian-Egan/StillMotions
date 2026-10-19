@@ -10,6 +10,8 @@ struct StillMotionsApp: App {
     init() {
         // A run that was killed mid-load can leave staged folders behind; clear them before anything new is staged.
         LivePhotoStager().purgeLeftovers()
+        // The same for exports: a run killed mid-export or with the share sheet open leaves its folder.
+        ExportFolders().purgeLeftovers()
     }
 
     var body: some Scene {

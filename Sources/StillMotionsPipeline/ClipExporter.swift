@@ -15,7 +15,8 @@ public enum ClipExporter {
         mode: PlaybackMode,
         to url: URL,
         renderer: StabilizedRenderer = StabilizedRenderer(),
-        encoder: VideoEncoder = VideoEncoder()
+        encoder: VideoEncoder = VideoEncoder(),
+        onFrame: (@Sendable (Int) -> Void)? = nil
     ) async throws -> VideoEncodingResult {
         // Refuse before doing any decoding work.
         guard mode != .loop else { throw VideoEncodingError.loopNotSupported }
@@ -34,7 +35,7 @@ public enum ClipExporter {
             frames: frames, corrections: path.corrections, crop: path.crop, outputSize: outputSize
         )
         return try await encoder.encode(
-            nextFrame: nextFrame, frameRate: frameRate, mode: mode,
+            nextFrame: counting(nextFrame, onFrame), frameRate: frameRate, mode: mode,
             frameTimes: times.count == path.corrections.count ? times : nil, to: url
         )
     }
@@ -55,7 +56,8 @@ public enum ClipExporter {
         loop: LoopSelection? = nil,
         to url: URL,
         renderer: StabilizedRenderer = StabilizedRenderer(),
-        encoder: GifEncoder = GifEncoder()
+        encoder: GifEncoder = GifEncoder(),
+        onFrame: (@Sendable (Int) -> Void)? = nil
     ) async throws -> GifEncodingResult {
         let asset = AVURLAsset(url: movieURL)
         guard let track = try await asset.loadTracks(withMediaType: .video).first else {
@@ -74,7 +76,7 @@ public enum ClipExporter {
                 asset: asset, track: track, path: path, loop: loop, frameRate: frameRate,
                 sourceRate: sourceRate, frameTimes: times, outputSize: outputSize, renderer: renderer
             )
-            return try await encoder.encode(nextFrame: nextFrame, frameRate: frameRate, mode: mode, to: url)
+            return try await encoder.encode(nextFrame: counting(nextFrame, onFrame), frameRate: frameRate, mode: mode, to: url)
         }
 
         let range = trim ?? 0..<path.corrections.count
@@ -86,7 +88,21 @@ public enum ClipExporter {
             frames: frames, corrections: kept.map { path.corrections[$0] },
             crop: path.crop, outputSize: outputSize
         )
-        return try await encoder.encode(nextFrame: nextFrame, frameRate: frameRate, mode: mode, to: url)
+        return try await encoder.encode(nextFrame: counting(nextFrame, onFrame), frameRate: frameRate, mode: mode, to: url)
+    }
+
+    /// Wraps a frame producer so `onFrame` hears how many frames have been handed to the encoder.
+    /// That count over the expected total is the export's progress.
+    static func counting(
+        _ next: @escaping () throws -> CVPixelBuffer?, _ onFrame: (@Sendable (Int) -> Void)?
+    ) -> () throws -> CVPixelBuffer? {
+        guard let onFrame else { return next }
+        var count = 0
+        return {
+            let frame = try next()
+            if frame != nil { count += 1; onFrame(count) }
+            return frame
+        }
     }
 
     /// Frames of a chosen loop, in playback order, with its crossfade applied.
