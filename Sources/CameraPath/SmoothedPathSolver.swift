@@ -35,13 +35,15 @@ import simd
 /// This is deliberately not the L1-optimal solver of decision 0002 / issue #21: a Gaussian over the path is
 /// a few dozen lines, has two numbers to tune, and needs no optimizer.
 public struct SmoothedPathSolver: CameraPathSolver {
-    /// Standard deviation of the Gaussian, in frames. A clip at about 29 fps with sigma 8 keeps
-    /// motion slower than roughly half a hertz and removes what is faster.
+    /// Standard deviation of the Gaussian, in frames. A clip at about 29 fps with sigma 12 keeps
+    /// motion slower than roughly a third of a hertz and removes what is faster. Raised from 8 in #98:
+    /// across 118 real clips a stronger filter took the jitter left from 0.47 to 0.41 of the original's
+    /// for under two points of crop, and past 12 it stopped helping (decision 0013).
     public var sigmaFrames: Double
     /// The most any corner of any frame may be moved, as a fraction of the frame's diagonal.
     public var maxMoveFraction: Double
 
-    public static let defaultSigmaFrames = 8.0
+    public static let defaultSigmaFrames = 12.0
     public static let defaultMaxMoveFraction = 0.06
 
     public init(
@@ -96,24 +98,55 @@ public struct SmoothedPathSolver: CameraPathSolver {
         ))
     }
 
-    /// Gaussian smoothing, entry by entry, over frame index. At the ends the kernel is cut off and
-    /// renormalized, so the first and last frames are averaged from the frames that exist rather than
-    /// pulled toward zero. A convex average, so a constant path stays exactly constant.
+    /// Gaussian smoothing, entry by entry, over frame index.
+    ///
+    /// **Past the ends the path is continued along a straight line fitted to its last few frames**, not
+    /// cut off. Cutting the kernel off averages the first and last frames from one side only, which drags
+    /// them toward the middle of the clip: on a path that trends (a zoom, a roll, a pan) the smoothed
+    /// value then lags the real one by about `sigma` frames of that trend, and the correction has to
+    /// shrink or turn whole frames to make up for it. On a selfie clip whose scale falls from 1.29 to
+    /// 0.89 that cost a quarter of the frame (issue #98). A straight-line continuation leaves any steady
+    /// zoom, roll or pan alone right up to the first and last frame, and a flat path is continued flat.
+    ///
+    /// The line is fitted over `sigma` frames, not taken from the single end sample. Reflecting through
+    /// the end sample would also keep a trend, but it doubles any noise in that one sample, and on a
+    /// nearly steady clip that made Smooth keep slightly LESS of the frame than Locked.
     static func smooth(_ matrices: [simd_double3x3], sigma: Double) -> [simd_double3x3] {
-        guard matrices.count > 1, sigma > 0 else { return matrices }
+        let count = matrices.count
+        guard count > 1, sigma > 0 else { return matrices }
         let radius = max(1, Int((3 * sigma).rounded(.up)))
         let kernel = (-radius...radius).map { exp(-0.5 * Double($0 * $0) / (sigma * sigma)) }
-        return (0..<matrices.count).map { i in
-            var sum = simd_double3x3(0)
-            var weight = 0.0
-            for k in -radius...radius {
-                let j = i + k
-                guard j >= 0, j < matrices.count else { continue }
-                let w = kernel[k + radius]
-                sum += matrices[j] * w
-                weight += w
+        let total = kernel.reduce(0, +)
+
+        /// The least-squares line through `matrices[range]`, entry by entry: value(i) = intercept + slope * i.
+        func line(_ range: Range<Int>) -> (intercept: simd_double3x3, slope: simd_double3x3) {
+            let n = Double(range.count)
+            let meanIndex = Double(range.lowerBound + range.upperBound - 1) / 2
+            var mean = simd_double3x3(0)
+            for k in range { mean += matrices[k] * (1 / n) }
+            var covariance = simd_double3x3(0)
+            var variance = 0.0
+            for k in range {
+                let d = Double(k) - meanIndex
+                covariance += (matrices[k] - mean) * d
+                variance += d * d
             }
-            return sum * (1 / weight)
+            let slope = variance > 0 ? covariance * (1 / variance) : simd_double3x3(0)
+            return (mean - slope * meanIndex, slope)
+        }
+        let window = min(count, max(4, Int(sigma.rounded())))
+        let head = line(0..<window)
+        let tail = line((count - window)..<count)
+
+        func extended(_ j: Int) -> simd_double3x3 {
+            if j < 0 { return head.intercept + head.slope * Double(j) }
+            if j >= count { return tail.intercept + tail.slope * Double(j) }
+            return matrices[j]
+        }
+        return (0..<count).map { i in
+            var sum = simd_double3x3(0)
+            for k in -radius...radius { sum += extended(i + k) * kernel[k + radius] }
+            return sum * (1 / total)
         }
     }
 

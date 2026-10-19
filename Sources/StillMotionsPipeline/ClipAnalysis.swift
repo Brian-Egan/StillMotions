@@ -151,3 +151,24 @@ extension ClipAnalyzer {
         return result
     }
 }
+
+extension ClipAnalyzer {
+    /// The stabilization to start a clip in (issue #98).
+    ///
+    /// Locked is the default (PRD R-7a), but it pins the camera to the reference frame, so on a clip
+    /// that pans, zooms or rolls it has to throw most of the picture away: on the developer's selfie
+    /// clip it keeps a third of the frame. Below `QualityThresholds.minimumCropRetention` (60%, the same
+    /// line the failure warning uses, decision 0009) a clip is started in the next gentler mode that
+    /// keeps more than that, which is Smooth, and Off if even that does not. The user can still pick
+    /// Locked; this only chooses where to start.
+    ///
+    /// - Parameter cropRetentions: what `cropRetentions(motion:)` returned. A mode missing from it could
+    ///   not be solved (nothing to crop to) and is never chosen.
+    public static func recommendedMode(cropRetentions: [StabilizationMode: Double]) -> StabilizationMode {
+        let floor = QualityThresholds.minimumCropRetention
+        for mode in [StabilizationMode.default, .smooth] {
+            if let kept = cropRetentions[mode], kept >= floor { return mode }
+        }
+        return .off
+    }
+}

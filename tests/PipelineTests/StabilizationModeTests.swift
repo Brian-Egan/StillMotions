@@ -196,6 +196,73 @@ final class StabilizationModeTests: XCTestCase {
         }
     }
 
+    // MARK: - The ends of the clip (#98)
+
+    /// A pose with a uniform scale and a shift, as a matrix.
+    static func pose(scale: Double, tx: Double, ty: Double = 0) -> simd_double3x3 {
+        simd_double3x3(columns: (SIMD3(scale, 0, 0), SIMD3(0, scale, 0), SIMD3(tx, ty, 1)))
+    }
+
+    func testASteadyZoomAndPanIsNotBentAtEitherEndOfTheClip() {
+        // Scale falling 1.29 to 0.89 and a pan of 400 px over 76 frames: a straight line in every entry.
+        // Cutting the kernel off at the ends averaged the first and last frames from one side and lagged
+        // them by about sigma frames of that trend, so the correction had to shrink whole frames.
+        let poses = (0..<76).map { Self.pose(scale: 1.29 - 0.4 * Double($0) / 75, tx: -200 + 400 * Double($0) / 75) }
+        let smoothed = SmoothedPathSolver.smooth(poses, sigma: 8)
+        for (original, result) in zip(poses, smoothed) {
+            for column in 0..<3 {
+                for row in 0..<3 {
+                    XCTAssertEqual(result[column][row], original[column][row], accuracy: 1e-9, "a straight-line path must come out unchanged, ends included")
+                }
+            }
+        }
+    }
+
+    func testAConstantPathStaysConstant() {
+        let poses = Array(repeating: Self.pose(scale: 1.1, tx: 12, ty: -7), count: 30)
+        for result in SmoothedPathSolver.smooth(poses, sigma: 8) {
+            XCTAssertEqual(result[0][0], 1.1, accuracy: 1e-12)
+            XCTAssertEqual(result[2][0], 12, accuracy: 1e-12)
+            XCTAssertEqual(result[2][2], 1, accuracy: 1e-12)
+        }
+    }
+
+    func testAClipThatZoomsAndPansKeepsMostOfTheFrame() throws {
+        // Steady zoom and pan with a little shake on top: the camera did something large and slow.
+        var rng = SplitMix64Test(seed: 7)
+        let motion = (0..<76).map { i -> FrameMotion in
+            let t = Double(i) / 75
+            let scale = 1.29 - 0.4 * t
+            let shakeX = (rng.unit() - 0.5) * 6, shakeY = (rng.unit() - 0.5) * 6
+            let m = simd_float3x3(columns: (
+                SIMD3<Float>(Float(scale), 0, 0), SIMD3<Float>(0, Float(scale), 0),
+                SIMD3<Float>(Float(-200 + 400 * t + shakeX), Float(shakeY), 1)
+            ))
+            return FrameMotion(index: i, transform: m)
+        }
+        let path = try SmoothedPathSolver().solve(motion: motion, frameSize: Self.frameSize)
+        XCTAssertGreaterThan(path.cropRetention, 0.80, "smoothing a slow zoom and pan should not cost the frame")
+        let locked = try WarpToReferenceSolver().solve(motion: motion, frameSize: Self.frameSize)
+        XCTAssertGreaterThan(path.cropRetention, locked.cropRetention + 0.2, "and it keeps far more than Locked, which has to undo the zoom")
+    }
+
+    // MARK: - Where a clip starts (#98)
+
+    func testALockedCropAboveTheWarningLineKeepsTheDefault() {
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [.off: 1, .smooth: 0.95, .locked: 0.80]), .locked)
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [.off: 1, .smooth: 0.95, .locked: 0.60]), .locked, "exactly at the line is fine")
+    }
+
+    func testAClipWhereLockedWouldKeepUnderSixtyPercentStartsInSmooth() {
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [.off: 1, .smooth: 0.93, .locked: 0.33]), .smooth)
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [.off: 1, .smooth: 0.93]), .smooth, "Locked could not be solved at all")
+    }
+
+    func testWhenNothingStabilizedKeepsEnoughTheClipStartsOff() {
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [.off: 1, .smooth: 0.5, .locked: 0.3]), .off)
+        XCTAssertEqual(ClipAnalyzer.recommendedMode(cropRetentions: [:]), .off)
+    }
+
     // MARK: - Through the pipeline
 
     /// Counts how many times motion is estimated.
