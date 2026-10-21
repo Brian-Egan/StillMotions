@@ -97,8 +97,12 @@ final class GalleryUITests: XCTestCase {
     /// Opens the first photo and waits until the preview is playing.
     private func openFirstPhoto() {
         cells.element(boundBy: 0).tap()
-        XCTAssertTrue(app.otherElements["previewImage"].waitForExistence(timeout: 60)
-            || app.images["previewImage"].waitForExistence(timeout: 1), "the editor never showed a preview")
+        let shown = app.otherElements["previewImage"].waitForExistence(timeout: 90) || app.images["previewImage"].waitForExistence(timeout: 1)
+        if !shown {
+            // Say what the screen showed instead, so a failure here can be told from a slow simulator.
+            let texts = app.staticTexts.allElementsBoundByIndex.prefix(12).map(\.label).joined(separator: " | ")
+            XCTFail("the editor never showed a preview. On screen: \(texts). Navigation bar: \(app.navigationBars.firstMatch.identifier)")
+        }
     }
 
     func testSwitchingModeAndRateReplansWithoutReanalyzing() throws {
@@ -161,6 +165,88 @@ final class GalleryUITests: XCTestCase {
             XCTAssertEqual(counts().solves, solves, "switching to \(mode) should solve exactly once")
             XCTAssertFalse(app.staticTexts["stabilizationSwitching"].exists)
         }
+    }
+
+    /// Turns a switch to `wanted` by tapping its own control (the right-hand end of its row; the middle is
+    /// the label, which does not toggle it), waiting for the screen to stop moving first. A tap can still be
+    /// missed on a busy simulator, so it looks at the switch's value and taps again, and reports how many
+    /// taps it took: if that is usually more than one, the app has a problem, not the test.
+    @discardableResult
+    private func setSwitch(_ toggle: XCUIElement, to wanted: Bool) -> Int {
+        var last = toggle.frame
+        for _ in 0..<20 {
+            Thread.sleep(forTimeInterval: 0.25)
+            let now = toggle.frame
+            if now == last, toggle.isHittable { break }
+            last = now
+        }
+        let wantedValue = wanted ? "1" : "0"
+        for attempt in 1...4 {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+            // The value flips at once when the tap lands, whatever work follows, so poll it for a few seconds.
+            for _ in 0..<12 {
+                if (toggle.value as? String) == wantedValue { return attempt }
+                Thread.sleep(forTimeInterval: 0.25)
+            }
+        }
+        XCTFail("the switch never turned \(wanted ? "on" : "off") after 4 taps")
+        return 4
+    }
+
+    func testIgnoringPeopleEstimatesOnceAndNothingElseDoes() throws {
+        launch()
+        try requireEnoughPhotos()
+        openFirstPhoto()
+
+        func counts() -> (estimates: Int, solves: Int, shown: String) {
+            let label = app.staticTexts["stabilizationCounters"].label
+            let n = label.components(separatedBy: "shown")[0].split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }
+            return (n[0], n[1], label.components(separatedBy: "shown ").last ?? "")
+        }
+        func waitForPeople(_ state: String) {
+            let settled = NSPredicate(format: "label ENDSWITH %@", state)
+            expectation(for: settled, evaluatedWith: app.staticTexts["peopleCounters"])
+            waitForExpectations(timeout: 180)
+        }
+        XCTAssertEqual(app.staticTexts["peopleCounters"].label, "people ignored: no", "it starts off")
+        XCTAssertEqual(counts().estimates, 1)
+        XCTAssertEqual(counts().solves, 1)
+
+        // On: one new estimate and one new solve. Tap the switch itself (the right-hand end of the row):
+        // the middle of a switch row is its label, which does not toggle it.
+        let toggle = app.switches["ignorePeopleToggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        setSwitch(toggle, to: true)
+        let started = app.staticTexts["stabilizationWorking"].waitForExistence(timeout: 15)
+        XCTAssertTrue(started || app.staticTexts["peopleCounters"].label.hasSuffix("yes"),
+                      "the tap did not turn the switch on (value: \(String(describing: toggle.value)); problem: \(app.staticTexts["ignorePeopleProblem"].exists ? app.staticTexts["ignorePeopleProblem"].label : "none"))")
+        waitForPeople("yes")
+        XCTAssertEqual(counts().estimates, 2, "turning it on estimates the motion once more, with people masked")
+        XCTAssertEqual(counts().solves, 2)
+        XCTAssertFalse(app.staticTexts["stabilizationWorking"].exists, "the working note goes away when it is done")
+        XCTAssertFalse(app.staticTexts["ignorePeopleProblem"].exists)
+
+        // Changing the stabilization still never estimates.
+        let other = ["Smooth", "Off", "Locked"].first { $0.lowercased() != counts().shown }!
+        app.buttons[other].tap()
+        let switched = NSPredicate(format: "label ENDSWITH %@", "shown \(other.lowercased())")
+        expectation(for: switched, evaluatedWith: app.staticTexts["stabilizationCounters"])
+        waitForExpectations(timeout: 60)
+        XCTAssertEqual(counts().estimates, 2, "a mode switch must not estimate")
+        XCTAssertEqual(counts().solves, 3)
+
+        // Off again: the first estimate is used again, so nothing is estimated.
+        setSwitch(app.switches["ignorePeopleToggle"], to: false)
+        waitForPeople("no")
+        XCTAssertEqual(counts().estimates, 2, "turning it off re-uses the first estimate")
+        XCTAssertEqual(counts().solves, 4)
+        XCTAssertEqual(counts().shown, other.lowercased(), "and the stabilization the user chose is kept")
+
+        // On once more: the saved masked estimate is re-used.
+        setSwitch(app.switches["ignorePeopleToggle"], to: true)
+        waitForPeople("yes")
+        XCTAssertEqual(counts().estimates, 2, "the masked estimate is kept, so turning it on again is free")
+        XCTAssertEqual(counts().solves, 5)
     }
 
     /// "about 1.2 MB" or "850 KB" as bytes.

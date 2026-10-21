@@ -38,6 +38,16 @@ final class EditorModel {
     /// The stabilization the user last asked for. Differs from `stabilization` only while a
     /// switch is being solved.
     private(set) var requestedStabilization: StabilizationMode = .default
+    /// "Ignore people" (issue #103): the motion is estimated from the background only, with people masked
+    /// out. `ignorePeople` is what the user asked for; `peopleIgnored` is what the preview shows, and
+    /// they differ only while the new estimate is being made.
+    private(set) var ignorePeople = false
+    private(set) var peopleIgnored = false
+    /// What the editor is busy doing to the stabilization, for the screen; nil when it is not.
+    private(set) var workNote: String?
+    /// A reason the last "Ignore people" request could not be done.
+    private(set) var ignorePeopleProblem: String?
+    var isChangingStabilization: Bool { workNote != nil }
     /// Set when the editor chose a gentler stabilization than the default, and why; cleared once the user
     /// picks one themselves.
     private(set) var automaticChoiceNote: String?
@@ -72,6 +82,12 @@ final class EditorModel {
     @ObservationIgnored private var frameTimes: [Double] = []
     @ObservationIgnored private var staged: StagedLivePhoto?
     @ObservationIgnored private var motion: ClipAnalyzer.MotionResult?
+    /// The two estimates, kept once made, so turning "Ignore people" on and off again never estimates twice.
+    @ObservationIgnored private var unmaskedMotion: ClipAnalyzer.MotionResult?
+    @ObservationIgnored private var maskedMotion: ClipAnalyzer.MotionResult?
+    /// Bumped whenever `motion` is replaced, so a solve that started on the old one can tell it is stale.
+    @ObservationIgnored private var motionGeneration = 0
+    @ObservationIgnored private var referenceIndex = 0
     @ObservationIgnored private var movieURL: URL?
     @ObservationIgnored private var switchTask: Task<Void, Never>?
     @ObservationIgnored private let renderer = StabilizedRenderer()
@@ -129,6 +145,8 @@ final class EditorModel {
             }
             timings.record("estimate", estimated.milliseconds)
             motion = estimated.value
+            unmaskedMotion = estimated.value
+            referenceIndex = clip.referenceFrameIndex
             self.movieURL = movieURL
             cropByStabilization = ClipAnalyzer.cropRetentions(motion: estimated.value)
             // Start in Locked unless it would keep under 60% of the frame (issue #98).
@@ -185,7 +203,7 @@ final class EditorModel {
     /// solved abandons the earlier one. The preview that is playing keeps playing until the new
     /// cache is ready, then everything swaps at once.
     func selectStabilization(_ mode: StabilizationMode) {
-        guard phase == .ready, mode != requestedStabilization else { return }
+        guard phase == .ready, !isChangingStabilization, mode != requestedStabilization else { return }
         automaticChoiceNote = nil
         requestedStabilization = mode
         switchTask?.cancel()
@@ -194,6 +212,7 @@ final class EditorModel {
 
     private func applyStabilization(_ mode: StabilizationMode) async {
         guard let movieURL, let motion else { return }
+        let generation = motionGeneration
         let started = ContinuousClock.now
         do {
             let solved = try await solve(mode, movieURL: movieURL, motion: motion)
@@ -202,7 +221,7 @@ final class EditorModel {
                 sourceSize: solved.analysis.motion.size, crop: solved.analysis.path.crop
             )
             // A newer request, or closing the editor, makes this result stale.
-            guard !Task.isCancelled, requestedStabilization == mode, self.motion != nil else { return }
+            guard !Task.isCancelled, requestedStabilization == mode, self.motion != nil, motionGeneration == generation else { return }
             cache = built.cache
             content = built.content
             analysis = solved.analysis
@@ -215,6 +234,81 @@ final class EditorModel {
             // Keep what is playing; offer the previous choice again.
             if requestedStabilization == mode { requestedStabilization = stabilization }
             StageTimer.logger.error("stabilization switch to \(mode.rawValue, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    // MARK: - Ignore people (issue #103)
+
+    /// Turns "Ignore people" on or off for this photo. On: the motion is estimated again with people masked
+    /// out of the picture, so the stabilizer follows the background and not the faces. This is the one
+    /// case that estimates again; changing the stabilization still never does. Off: the first estimate
+    /// is used again, so no new estimate is made. Either way the preview that is playing keeps playing
+    /// until the new one is ready. Not remembered between photos: it is a per-photo remedy, and it costs
+    /// seconds, so it starts off.
+    func setIgnorePeople(_ on: Bool) {
+        guard phase == .ready, !isChangingStabilization, on != ignorePeople else { return }
+        ignorePeopleProblem = nil
+        ignorePeople = on
+        switchTask?.cancel()
+        switchTask = Task { await applyIgnorePeople(on) }
+    }
+
+    private func applyIgnorePeople(_ on: Bool) async {
+        guard let movieURL else { return }
+        let needsEstimate = on && maskedMotion == nil
+        workNote = needsEstimate ? "Finding the background. This takes a few seconds." : "Updating the preview."
+        defer { workNote = nil }
+        let started = ContinuousClock.now
+        do {
+            let target: ClipAnalyzer.MotionResult
+            if on {
+                if let saved = maskedMotion {
+                    target = saved
+                } else {
+                    estimateCount += 1
+                    // People only (the general foreground mask also outlines signs and furniture) at a low
+                    // segmentation resolution: the same result on the reference clip, at about half the cost.
+                    let masker = SubjectMasker(configuration: .init(analysisLongEdge: 360, usesForegroundInstances: false))
+                    let estimated = try await StageTimer.time("estimateMasked") {
+                        try await ClipAnalyzer.estimateMotion(
+                            movieURL: movieURL, referenceIndex: referenceIndex, estimator: VisionRegistrationEstimator(), masker: masker
+                        )
+                    }
+                    StageTimer.logger.info("ignore people: motion estimate took \(estimated.milliseconds, format: .fixed(precision: 0)) ms")
+                    maskedMotion = estimated.value
+                    target = estimated.value
+                }
+            } else if let saved = unmaskedMotion {
+                target = saved
+            } else {
+                return
+            }
+            guard !Task.isCancelled, ignorePeople == on else { return }
+
+            let mode = requestedStabilization
+            let solved = try await solve(mode, movieURL: movieURL, motion: target)
+            let built = try await Self.buildCache(
+                movieURL: movieURL, corrections: solved.analysis.path.corrections,
+                sourceSize: solved.analysis.motion.size, crop: solved.analysis.path.crop
+            )
+            guard !Task.isCancelled, ignorePeople == on, self.motion != nil else { return }
+            motion = target
+            motionGeneration += 1
+            cropByStabilization = ClipAnalyzer.cropRetentions(motion: target)
+            cache = built.cache
+            content = built.content
+            analysis = solved.analysis
+            stabilization = mode
+            peopleIgnored = on
+            automaticChoiceNote = nil   // that note described the estimate this replaces
+            replan()
+            let elapsed = ContinuousClock.now - started
+            let ms = Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15
+            StageTimer.logger.info("ignore people \(on ? "on" : "off", privacy: .public): \(ms, format: .fixed(precision: 0)) ms")
+        } catch {
+            if ignorePeople == on { ignorePeople = peopleIgnored }
+            ignorePeopleProblem = on ? "Couldn't tell the people from the background in this photo." : "Couldn't update the preview."
+            StageTimer.logger.error("ignore people \(on ? "on" : "off", privacy: .public) failed: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -249,6 +343,8 @@ final class EditorModel {
         switchTask?.cancel()
         switchTask = nil
         motion = nil
+        unmaskedMotion = nil
+        maskedMotion = nil
         cache = nil
         content = nil
         analysis = nil
