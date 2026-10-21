@@ -71,6 +71,9 @@ private struct EditorContent: View {
             // Which photo this is, for the tap-goes-to-the-right-photo check, and the debug counters.
             Text(takenDate).font(.caption2).foregroundStyle(.tertiary).accessibilityIdentifier("editorTakenDate")
             #if DEBUG
+            Text("people ignored: \(model.peopleIgnored ? "yes" : "no")")
+                .font(.caption2.monospacedDigit())
+                .accessibilityIdentifier("peopleCounters")
             Text("estimates \(model.estimateCount), solves \(model.analyzeCount), shown \(model.stabilization.rawValue)")
                 .font(.caption2.monospacedDigit())
                 .accessibilityIdentifier("stabilizationCounters")
@@ -115,6 +118,7 @@ private struct EditorContent: View {
                 ForEach(StabilizationMode.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .pickerStyle(.segmented)
+            .disabled(model.isChangingStabilization)
             .accessibilityIdentifier("stabilizationPicker")
 
             HStack {
@@ -130,6 +134,20 @@ private struct EditorContent: View {
             if let note = model.automaticChoiceNote {
                 Text(note).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     .accessibilityIdentifier("stabilizationAutoNote")
+            }
+            Toggle("Ignore people", isOn: Binding(get: { model.ignorePeople }, set: { model.setIgnorePeople($0) }))
+                .font(.subheadline)
+                .disabled(model.isChangingStabilization)
+                .accessibilityIdentifier("ignorePeopleToggle")
+            Text("For photos where people fill the frame and the background seems to drift. It can take a few seconds.")
+                .font(.caption2).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            if let work = model.workNote {
+                Text(work).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("stabilizationWorking")
+            }
+            if let problem = model.ignorePeopleProblem {
+                Text(problem).font(.caption).foregroundStyle(.orange)
+                    .accessibilityIdentifier("ignorePeopleProblem")
             }
             if model.requestedStabilization != model.stabilization {
                 Text("Switching to \(model.requestedStabilization.displayName)…")
