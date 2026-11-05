@@ -72,6 +72,46 @@ enum PolicyStudy {
             }
         }
         try save(rows, to: out)
+        print("\n" + guardSummary(rows).description)
+    }
+
+    /// What "show the original whenever the stabilized picture measures shakier than it" would do (issue #102),
+    /// worked out from the rows: jitter of the picture as shot (`off`) against Smooth's, per clip.
+    struct GuardSummary: Equatable, CustomStringConvertible {
+        var clips = 0
+        var smoothWorseThanOff = 0
+        var smoothMoreThanFifteenPercentWorse = 0
+        var worstRatioToday = 1.0
+        var medianRatioToday = 0.0
+        var medianRatioWithGuard = 0.0
+        var worstRatioWithGuard = 1.0
+
+        var description: String {
+            String(
+                format: "guard (fall back to Off when Smooth measures shakier), %d clips:\n  today: worse than Off on %d (%d by more than 15%%), worst %.2fx, median %.3f\n  with the guard: worse than Off on 0, worst %.2fx, median %.3f",
+                clips, smoothWorseThanOff, smoothMoreThanFifteenPercentWorse, worstRatioToday, medianRatioToday, worstRatioWithGuard, medianRatioWithGuard
+            )
+        }
+    }
+
+    /// Clips whose picture as shot has almost no shake (under 0.05 px) are left out: a ratio to nothing says nothing.
+    static func guardSummary(_ rows: [Row], solver: String = "smooth-12") -> GuardSummary {
+        var summary = GuardSummary()
+        var today: [Double] = [], guarded: [Double] = []
+        for row in rows {
+            guard let off = row.off.jitter, off > 0.05, let smooth = row.unmasked[solver]?.jitter else { continue }
+            today.append(smooth / off)
+            guarded.append(min(smooth, off) / off)
+        }
+        func median(_ v: [Double]) -> Double { v.isEmpty ? 0 : v.sorted()[v.count / 2] }
+        summary.clips = today.count
+        summary.smoothWorseThanOff = today.filter { $0 > 1 }.count
+        summary.smoothMoreThanFifteenPercentWorse = today.filter { $0 > 1.15 }.count
+        summary.worstRatioToday = today.max() ?? 1
+        summary.medianRatioToday = median(today)
+        summary.medianRatioWithGuard = median(guarded)
+        summary.worstRatioWithGuard = guarded.max() ?? 1
+        return summary
     }
 
     static func describe(_ outcome: PolicyStudy.Outcome?) -> String {
