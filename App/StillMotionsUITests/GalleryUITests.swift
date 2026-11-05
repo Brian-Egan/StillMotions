@@ -118,7 +118,7 @@ final class GalleryUITests: XCTestCase {
         for mode in ["Bounce", "Once", "Loop"] {
             app.buttons[mode].tap()
         }
-        for rate in ["25 fps", "16.7 fps", "20 fps"] {
+        for rate in ["25 fps", "30 fps", "16.7 fps", "20 fps"] {
             app.buttons[rate].tap()
         }
         counters = numbers(in: "editorCounters")
@@ -301,8 +301,10 @@ final class GalleryUITests: XCTestCase {
         let fast = try XCTUnwrap(bytes(in: app.staticTexts["estimatedSize"].label))
         XCTAssertGreaterThan(fast, slow, "more frames per second should cost more bytes")
 
-        // Only the three frame rates whose delay is a whole number of centiseconds are offered.
-        XCTAssertEqual(app.segmentedControls["ratePicker"].buttons.count, 3)
+        // Four rates are offered: 16.7, 20 and 25 fps, whose frame time is a whole number of centiseconds, and
+        // 30 fps, which is written as a mix of 3 and 4 centisecond delays (decision 0014).
+        XCTAssertEqual(app.segmentedControls["ratePicker"].buttons.count, 4)
+        XCTAssertTrue(app.segmentedControls["ratePicker"].buttons["30 fps"].exists)
     }
 
     /// "export folders on disk: N" as N.

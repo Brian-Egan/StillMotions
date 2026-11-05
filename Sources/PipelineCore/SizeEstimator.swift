@@ -97,24 +97,24 @@ public struct SizeModel: Codable, Equatable, Sendable {
     /// The shipped coefficients. Fitted by `stillmotions-harness estimate-accuracy` (see the PR for
     /// #31 and `docs/ARCHITECTURE.md` §7); rerun it after any change to the encoder or renderer.
     public static let shipped = SizeModel(
-        gifIntercept: -3.169902,
+        gifIntercept: -3.325028,
         gifWeights: [
-            .logPixels: -0.049072,
-            .logGifRate: -0.195407,
-            .logDetail: 0.030837,
-            .logEdgeDensity: 1.184410,
-            .logChange: 0.062327,
-            .logChangeFraction: 0.045792,
-            .colorEntropy: 0.971390,
-            .logCropRetention: -0.009863,
-            .logSourceFrameRate: 0.465534,
-            .bounce: -0.007975,
-            .logDetailSquared: -0.063337,
-            .logEdgeDensitySquared: 0.220736,
-            .colorEntropySquared: -0.073119,
+            .logPixels: -0.047981,
+            .logGifRate: -0.193464,
+            .logDetail: 0.078328,
+            .logEdgeDensity: 1.202804,
+            .logChange: 0.076392,
+            .logChangeFraction: 0.040125,
+            .colorEntropy: 0.969789,
+            .logCropRetention: -0.016988,
+            .logSourceFrameRate: 0.487212,
+            .bounce: -0.007904,
+            .logDetailSquared: -0.073491,
+            .logEdgeDensitySquared: 0.227740,
+            .colorEntropySquared: -0.073091,
         ],
-        typicalContent: ContentFeatures(detail: 9.3982, edgeDensity: 0.3524, change: 4.0831, changeFraction: 0.1249, colorEntropy: 6.9381),
-        mp4FractionOfTarget: 1.1267
+        typicalContent: ContentFeatures(detail: 9.4257, edgeDensity: 0.3533, change: 4.1528, changeFraction: 0.1272, colorEntropy: 6.9467),
+        mp4FractionOfTarget: 1.1279
     )
 }
 

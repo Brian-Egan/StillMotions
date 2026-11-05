@@ -47,7 +47,7 @@ decision record, because the harness baseline depends on them.
 | --- | --- | --- |
 | Size presets (long edge) | Small **480 px**, Medium **720 px**, Full **native** | Brief's suggestion. Medium deliberately equals the preview cache resolution (§5.2), so exporting Medium needs no re-render from source. |
 | GIF frame rate | **20 fps** | GIF stores per-frame delay in **centiseconds**, so only integral-centisecond rates are exact. 20 fps is exactly 5 cs. 15 fps is 6.67 cs and cannot be represented; 30 fps is 3.33 cs and rounds to 3 cs, playing ~11% fast. 20 fps carries 33% more frames than 15 for a clear smoothness gain at roughly two thirds the size of 30 fps. |
-| GIF frame rate options | 16.67 (6 cs), **20 (5 cs)**, 25 (4 cs) | The integral-centisecond rates in a useful range. Non-integral rates are not offered, because their playback speed would be wrong. |
+| GIF frame rate options | 16.67 (6 cs), **20 (5 cs)**, 25 (4 cs), 30 (3 and 4 cs mixed) | The integral-centisecond rates are exact. 30 fps is 3.33 cs, which no single delay holds, so it is written as a repeating 3, 4, 3 that averages 3.33 and plays at the speed it was shot, not ~11% fast as a flat 3 cs would ([0014](decisions/0014-gif-30fps-exact-timing.md)). Other non-integral rates (15 fps) are not offered. |
 | Video frame rate | Source rate, unchanged | Brief. No resampling artifacts. |
 | Default mode | Loop | Brief. |
 | Default format | GIF | GIF is the only format that loops in iMessage (0005), which is the primary destination. |
