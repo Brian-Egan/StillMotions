@@ -78,3 +78,31 @@ final class OutputMotionTests: XCTestCase {
         XCTAssertEqual(EstimationFailures.classify([]), [:])
     }
 }
+
+/// #102: what a "show the original when stabilizing made it shakier" rule would do, computed from the study rows.
+final class GuardSummaryTests: XCTestCase {
+    private func row(off: Double, smooth: Double) -> PolicyStudy.Row {
+        let none = PolicyStudy.Outcome(cropKept: 1, jitter: nil, netPan: nil)
+        return PolicyStudy.Row(
+            clip: "c", personCoverage: 0, frames: 60, off: PolicyStudy.Outcome(cropKept: 1, jitter: off, netPan: 0),
+            unmasked: ["smooth-12": PolicyStudy.Outcome(cropKept: 0.9, jitter: smooth, netPan: 0)], masked: ["smooth-12": none],
+            estimateSecondsUnmasked: 1, estimateSecondsMasked: 0, estimationFailuresUnmasked: 0, estimationFailuresMasked: 0
+        )
+    }
+
+    func testTheGuardRemovesAnyClipThatGotWorseAndChangesNothingElse() {
+        let summary = PolicyStudy.guardSummary([row(off: 1.0, smooth: 0.4), row(off: 0.5, smooth: 0.8), row(off: 0.3, smooth: 0.6), row(off: 0.8, smooth: 0.2)])
+        XCTAssertEqual(summary.clips, 4)
+        XCTAssertEqual(summary.smoothWorseThanOff, 2)
+        XCTAssertEqual(summary.smoothMoreThanFifteenPercentWorse, 2)
+        XCTAssertEqual(summary.worstRatioToday, 2.0, accuracy: 1e-9)
+        XCTAssertEqual(summary.worstRatioWithGuard, 1.0, accuracy: 1e-9, "never worse than the original")
+        // The two clips that were helped keep their gain (0.4 and 0.25 of Off), the other two become 1.0.
+        XCTAssertEqual(summary.medianRatioWithGuard, 1.0, accuracy: 1e-9)
+    }
+
+    func testClipsWithNothingToMeasureAreLeftOut() {
+        XCTAssertEqual(PolicyStudy.guardSummary([row(off: 0.01, smooth: 0.5)]).clips, 0)
+        XCTAssertEqual(PolicyStudy.guardSummary([]).clips, 0)
+    }
+}
