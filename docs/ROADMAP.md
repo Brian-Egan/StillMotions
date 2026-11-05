@@ -191,6 +191,6 @@ either by picking one and moving on.
 | --- | --- | --- |
 | Registration vs optical flow | #10, measured; device numbers confirmed in #26 | [0001](decisions/0001-motion-estimation.md) |
 | Whether the L1 solver is needed | #18's crop-retention gate; #21 built or closed | [0002](decisions/0002-camera-path-solver.md) |
-| Does the QuickTime `LOOP` atom work in iMessage | #35, empirically | [0005](decisions/0005-looping-export.md) |
+| Does the QuickTime `LOOP` atom work in iMessage | **Resolved in #35: no.** Loop stays GIF-only | [0005](decisions/0005-looping-export.md) |
 | Real extension memory ceiling on iOS 27 | #36, measured on the iPhone 14 Pro | [0003](decisions/0003-extension-strategy.md) |
 | Live Photo source frame rate, 15 vs 30 | #8, measured | [PRD §8](PRD.md) |
