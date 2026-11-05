@@ -277,6 +277,16 @@ sequenceDiagram
   App->>AG: delete staged files
 ```
 
+**The `DropBox` module.** The extension and the app (for the drain, #37) must agree on the staging folder
+layout and the manifest, and the extension must not link the pipeline. So that agreement lives in a small
+module, `Sources/DropBox`, that depends on nothing but Foundation. The extension links it and nothing else of
+ours (`scripts/check-extension-clean.sh`, run by `verify.sh`, fails the build if the extension's source or
+`project.yml` says otherwise); the app reaches it through the facade. It holds the manifest, the staging
+steps (copy the files, write the manifest LAST and atomically, so a share killed part-way has no manifest and
+can be told from a finished one), which pieces of a share to copy (`ShareSource`: a Live Photo bundle, or a
+separate still and movie; a regular photo is refused), and the sentences the person reads. All of it is tested
+by `swift test`, not by hand in a share sheet.
+
 Rules the extension must not break:
 
 - **File copies only.** `loadFileRepresentation`, never `loadDataRepresentation`. Never

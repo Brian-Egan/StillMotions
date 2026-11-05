@@ -14,8 +14,11 @@ let package = Package(
         .macOS("15.0"),
     ],
     products: [
-        // The only module the app and extension may import.
+        // The only pipeline module the app may import. The share extension must NOT import it (decision 0003).
         .library(name: "StillMotionsPipeline", targets: ["StillMotionsPipeline"]),
+        // The hand-off between the share extension and the app: Foundation only, no pipeline. The extension
+        // links this and nothing else of ours.
+        .library(name: "DropBox", targets: ["DropBox"]),
         // Quality harness. macOS only in practice; see docs/PRD.md R-22.
         .executable(name: "stillmotions-harness", targets: ["HarnessCLI"]),
     ],
@@ -25,6 +28,12 @@ let package = Package(
         // Value types and protocols shared by every stage. No platform dependencies
         // beyond Foundation/CoreVideo/simd.
         .target(name: "PipelineCore"),
+
+        // MARK: - Share hand-off
+
+        // The share extension's drop box and the manifest it shares with the app (issue #36). Depends on
+        // nothing, so the extension never links the pipeline.
+        .target(name: "DropBox"),
 
         // MARK: - Pipeline stages
 
@@ -67,6 +76,7 @@ let package = Package(
                 "LoopSelection",
                 "Rendering",
                 "Encoding",
+                "DropBox",
             ]
         ),
 

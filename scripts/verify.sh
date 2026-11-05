@@ -33,6 +33,15 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+section "1b/4  Share extension stays a drop box"
+# Decision 0003: the extension only copies files. Cheap, so it runs before the build.
+if ./scripts/check-extension-clean.sh; then
+  ok "share extension is a drop box"
+else
+  fail "share extension breaks decision 0003 — see output above"
+fi
+
+# ---------------------------------------------------------------------------
 section "2/4  swift build"
 # Vendor/Gifski.xcframework is gitignored. If the Encoding target depends on CGifski and
 # the artifact is missing, the build fails with a confusing manifest error — so say so.
