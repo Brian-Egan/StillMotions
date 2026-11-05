@@ -5,22 +5,33 @@ import SwiftUI
 /// The editor: the stabilized preview, looping, with the playback mode and the GIF frame rate
 /// switchable while it plays. Trim, crop, the warning and export are later issues (#27 to #33).
 struct EditorView: View {
-    let assetID: String
+    let source: EditorSource
     @Environment(AppSettings.self) private var settings
+    @Environment(PendingShares.self) private var pending
     @State private var model: EditorModel?
+
+    /// When a shared photo was shared, for the screen's date line.
+    private var sharedDate: Date? {
+        if case .shared(let id) = source { return pending.item(id)?.createdAt }
+        return nil
+    }
 
     var body: some View {
         Group {
             if let model {
-                EditorContent(model: model, assetID: assetID)
+                EditorContent(model: model, source: source, sharedDate: sharedDate)
             } else {
                 ProgressView()
             }
         }
         .navigationTitle("Editor")
         .navigationBarTitleDisplayMode(.inline)
-        .task(id: assetID) {
-            let model = EditorModel(assetID: assetID, defaults: settings.values)
+        .task(id: source) {
+            var files: (still: URL, video: URL)?
+            if case .shared(let id) = source, let item = pending.item(id) { files = (item.stillURL, item.videoURL) }
+            let model = EditorModel(
+                source: source, sharedFiles: files, consumeShared: { [pending] id in pending.consume(id) }, defaults: settings.values
+            )
             self.model = model
             await model.load()
         }
@@ -31,12 +42,19 @@ struct EditorView: View {
 
 private struct EditorContent: View {
     @Bindable var model: EditorModel
-    let assetID: String
+    let source: EditorSource
+    let sharedDate: Date?
 
-    /// The date the tapped photo was taken, so the screen can show which photo it is.
+    /// The date the tapped photo was taken, so the screen can show which photo it is. For a shared photo
+    /// it is the moment it was shared.
     private var takenDate: String {
-        let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject
-        return asset?.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "unknown"
+        switch source {
+        case .library(let assetID):
+            let asset = PHAsset.fetchAssets(withLocalIdentifiers: [assetID], options: nil).firstObject
+            return asset?.creationDate?.formatted(date: .abbreviated, time: .shortened) ?? "unknown"
+        case .shared:
+            return "Shared " + (sharedDate?.formatted(date: .abbreviated, time: .shortened) ?? "just now")
+        }
     }
 
     var body: some View {

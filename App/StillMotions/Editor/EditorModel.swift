@@ -77,7 +77,11 @@ final class EditorModel {
     /// The pixel sizes of Small and Medium, as set in Settings when this photo was opened.
     let presetSizes: PresetSizes
 
-    @ObservationIgnored private let assetID: String
+    @ObservationIgnored private let source: EditorSource
+    /// Called when the editor closes on a shared photo, which is then no longer waiting.
+    @ObservationIgnored private let consumeShared: (UUID) -> Void
+    /// The files of a shared photo, found by the caller (they are already in the app).
+    @ObservationIgnored private let sharedFiles: (still: URL, video: URL)?
     @ObservationIgnored private var cache: StabilizedFrameCache?
     @ObservationIgnored private var frameTimes: [Double] = []
     @ObservationIgnored private var staged: StagedLivePhoto?
@@ -95,8 +99,10 @@ final class EditorModel {
     @ObservationIgnored private var openedAt = ContinuousClock.now
     @ObservationIgnored private var firstFrameReported = false
 
-    init(assetID: String, defaults: ExportDefaults) {
-        self.assetID = assetID
+    init(source: EditorSource, sharedFiles: (still: URL, video: URL)? = nil, consumeShared: @escaping (UUID) -> Void = { _ in }, defaults: ExportDefaults) {
+        self.source = source
+        self.sharedFiles = sharedFiles
+        self.consumeShared = consumeShared
         mode = defaults.mode
         frameRate = defaults.gifFrameRate
         exportFormat = ExportMatrix.format(defaults.format, afterSelecting: defaults.mode)
@@ -114,19 +120,28 @@ final class EditorModel {
         do {
             var timings = PreviewTimings()
 
-            phase = .loading("Getting the photo from your library")
-            let staging = try await StageTimer.time("stage") {
-                try await PhotoKitLivePhotoLoader().load(assetID: assetID) { [weak self] fraction in
-                    Task { @MainActor in self?.phase = .loading("Downloading from iCloud \(Int(fraction * 100))%") }
+            let stillURL: URL, movieURL: URL
+            switch source {
+            case .library(let assetID):
+                phase = .loading("Getting the photo from your library")
+                let staging = try await StageTimer.time("stage") {
+                    try await PhotoKitLivePhotoLoader().load(assetID: assetID) { [weak self] fraction in
+                        Task { @MainActor in self?.phase = .loading("Downloading from iCloud \(Int(fraction * 100))%") }
+                    }
                 }
+                staged = staging.value
+                timings.record("stage", staging.milliseconds)
+                (stillURL, movieURL) = (staging.value.stillURL, staging.value.videoURL)
+            case .shared:
+                // Already in the app: the share extension copied the files and the drain moved them here.
+                guard let sharedFiles else { throw ClipImportError.noVideoTrack(URL(fileURLWithPath: "/")) }
+                timings.record("stage", 0)
+                (stillURL, movieURL) = sharedFiles
             }
-            staged = staging.value
-            timings.record("stage", staging.milliseconds)
 
             phase = .loading("Reading the clip")
-            let movieURL = staging.value.videoURL
             let imported = try await StageTimer.time("import") {
-                try await LivePhotoImporter.describeClip(heicURL: staging.value.stillURL, movURL: movieURL)
+                try await LivePhotoImporter.describeClip(heicURL: stillURL, movURL: movieURL)
             }
             timings.record("import", imported.milliseconds)
             let clip = imported.value
@@ -350,6 +365,8 @@ final class EditorModel {
         analysis = nil
         staged?.cleanup()
         staged = nil
+        // A shared photo was waiting to be opened; it has been, so it no longer waits.
+        if case .shared(let id) = source { consumeShared(id) }
     }
 
     // MARK: - Playback
