@@ -100,8 +100,11 @@ final class GifEncoderTests: XCTestCase {
     // MARK: - Frame rates
 
     func testFrameRatesAreExactCentisecondsAndDecimateCorrectly() {
-        XCTAssertEqual(GifFrameRate.allCases.map(\.centiseconds), [6, 5, 4])
+        XCTAssertEqual(GifFrameRate.allCases.map(\.averageCentiseconds), [6, 5, 4, 10.0 / 3])
+        XCTAssertEqual(GifFrameRate.allCases.map(\.delaysWritten), [[6], [5], [4], [3, 4]])
         XCTAssertEqual(GifFrameRate.fps20.framesPerSecond, 20)
+        XCTAssertEqual(GifFrameRate.fps30.framesPerSecond, 30)
+        XCTAssertEqual(GifFrameRate.fps30.sourceIndices(sourceCount: 90, sourceRate: 30).count, 90)
         // 3 s at 30 fps: 50, 60 and 75 frames.
         XCTAssertEqual(GifFrameRate.fps16_67.sourceIndices(sourceCount: 90, sourceRate: 30).count, 50)
         XCTAssertEqual(GifFrameRate.fps20.sourceIndices(sourceCount: 90, sourceRate: 30).count, 60)
@@ -142,17 +145,36 @@ final class GifEncoderTests: XCTestCase {
     func testEveryFrameRateGivesExactDelaysAndFrameCounts() async throws {
         let path = try solvedPath("translate-shake")
         let movie = CameraPathTests.fixturesDirectory.appendingPathComponent("translate-shake.mov")
-        for (rate, expectedFrames) in [(GifFrameRate.fps16_67, 50), (.fps20, 60), (.fps25, 75)] {
+        for (rate, expectedFrames) in [(GifFrameRate.fps16_67, 50), (.fps20, 60), (.fps25, 75), (.fps30, 90)] {
             for preset in SizePreset.allCases {
                 let url = tempURL()
                 defer { try? FileManager.default.removeItem(at: url) }
                 _ = try await ClipExporter.exportGIF(movieURL: movie, path: path, preset: preset, frameRate: rate, mode: .loop, to: url)
                 let facts = try GifFacts.parse(url)
                 XCTAssertEqual(facts.frameDelays.count, expectedFrames, "\(rate) \(preset)")
-                // Every frame, including the last, is exactly one frame time.
-                XCTAssertEqual(Set(facts.frameDelays), [rate.centiseconds], "\(rate) \(preset): delays \(Set(facts.frameDelays))")
+                // Every delay written is one of the rate's delays (one value for the whole-centisecond rates).
+                XCTAssertTrue(Set(facts.frameDelays).isSubset(of: Set(rate.delaysWritten)), "\(rate) \(preset): delays \(Set(facts.frameDelays))")
+                if rate != .fps30 { XCTAssertEqual(Set(facts.frameDelays), Set(rate.delaysWritten), "\(rate) \(preset)") }
+                // And the clip plays at the speed it was shot: total time is frames x the average frame time,
+                // to within a centisecond or two. This is what a flat 3 cs for 30 fps would get wrong, by 10%.
+                let played = Double(facts.frameDelays.reduce(0, +))
+                XCTAssertEqual(played, Double(expectedFrames) * rate.averageCentiseconds, accuracy: 2, "\(rate) \(preset): plays for \(played) cs")
             }
         }
+    }
+
+    func testThirtyFramesPerSecondIsWrittenAsARepeatingThreeFourThree() async throws {
+        let path = try solvedPath("translate-shake")
+        let movie = CameraPathTests.fixturesDirectory.appendingPathComponent("translate-shake.mov")
+        let url = tempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+        _ = try await ClipExporter.exportGIF(movieURL: movie, path: path, preset: .small, frameRate: .fps30, mode: .once, to: url)
+        let delays = try GifFacts.parse(url).frameDelays
+        // gifski rounds the RUNNING TOTAL of frame times, so the error never accumulates: 3, 4, 3, then again.
+        XCTAssertEqual(Array(delays.prefix(9)), [3, 4, 3, 3, 4, 3, 3, 4, 3], "delays began \(delays.prefix(9))")
+        XCTAssertEqual(Set(delays), [3, 4])
+        // A flat 3 cs, as MotionStills wrote, would be 10% fast: 90 frames would last 2.7 s instead of 3.0 s.
+        XCTAssertEqual(Double(delays.reduce(0, +)) / 100, 3.0, accuracy: 0.05)
     }
 
     func testLoopCountPerMode() async throws {

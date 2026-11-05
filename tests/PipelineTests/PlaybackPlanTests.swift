@@ -65,7 +65,7 @@ final class PlaybackPlanTests: XCTestCase {
 
     func testFrameRateDecimatesWithoutTouchingTheOrder() {
         let counts = GifFrameRate.allCases.map { PlaybackPlan.make(mode: .once, frameTimes: Self.evenTimes, loop: nil, frameRate: $0).steps.count }
-        XCTAssertEqual(counts, [50, 60, 75], "16.67, 20 and 25 fps over 3 s")
+        XCTAssertEqual(counts, [50, 60, 75, 90], "16.67, 20, 25 and 30 fps over 3 s")
     }
 
     func testAVariableFrameRateClipPlaysForAsLongAsItDoes() {

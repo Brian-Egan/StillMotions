@@ -52,6 +52,7 @@ final class ExportSizingTests: XCTestCase {
         XCTAssertEqual(count(.fps20), 60)
         XCTAssertEqual(count(.fps25), 75)
         XCTAssertEqual(count(.fps16_67), 50)
+        XCTAssertEqual(count(.fps30), 90)
     }
 
     func testEstimatesRiseWithThePresetForBothFormats() {
@@ -89,5 +90,6 @@ final class ExportSizingTests: XCTestCase {
         }
         XCTAssertLessThan(gif(.fps16_67), gif(.fps20))
         XCTAssertLessThan(gif(.fps20), gif(.fps25))
+        XCTAssertLessThan(gif(.fps25), gif(.fps30))
     }
 }

@@ -20,7 +20,7 @@ final class ExportDefaultsTests: XCTestCase {
         XCTAssertEqual(defaults.sizePreset, .medium)
         XCTAssertEqual(defaults.sizePreset.longEdge, 720)
         XCTAssertEqual(defaults.gifFrameRate, .fps20)
-        XCTAssertEqual(defaults.gifFrameRate.centiseconds, 5, "20 fps is exactly 5 centiseconds")
+        XCTAssertEqual(defaults.gifFrameRate.averageCentiseconds, 5, "20 fps is exactly 5 centiseconds")
         XCTAssertEqual(defaults.mode, .loop)
         XCTAssertEqual(defaults.format, .gif)
         XCTAssertEqual(defaults, ExportDefaults())

@@ -26,8 +26,8 @@ public struct GifEncodingResult: Equatable, Sendable {
     public let frameCount: Int
     public let width: Int
     public let height: Int
-    /// Each frame's delay, in centiseconds.
-    public let delayCentiseconds: Int
+    /// The average delay of a frame, in centiseconds (3.33 for 30 fps, which is written as a mix of 3 and 4).
+    public let averageDelayCentiseconds: Double
     /// `nil` when the GIF plays once; otherwise 0, meaning forever.
     public let loopForever: Bool
 }
@@ -102,14 +102,14 @@ public struct GifEncoder {
         var written = 0
         var size = (width: 0, height: 0)
         var spool: FrameSpool?
-        let delay = Double(frameRate.centiseconds) / 100
 
         func add(_ buffer: CVPixelBuffer) throws {
-            // Frame n is shown at exactly n * delay seconds, an exact multiple of a centisecond.
+            // Frame n is shown at `presentationTime`: an exact multiple of a centisecond for the whole-centisecond
+            // rates, and n / 30 s for 30 fps, which gifski turns into 3 and 4 cs delays that average 3.33.
             let status = try Self.withRGBA(buffer) { pixels, bytesPerRow in
                 gifski_add_frame_rgba_stride(
                     handle!, UInt32(written), UInt32(size.width), UInt32(size.height),
-                    UInt32(bytesPerRow), pixels, Double(written) * delay
+                    UInt32(bytesPerRow), pixels, frameRate.presentationTime(ofFrame: written)
                 )
             }
             guard status == GIFSKI_OK else {
@@ -151,7 +151,7 @@ public struct GifEncoder {
             try sink.close()
             return GifEncodingResult(
                 frameCount: written, width: size.width, height: size.height,
-                delayCentiseconds: frameRate.centiseconds, loopForever: loopForever
+                averageDelayCentiseconds: frameRate.averageCentiseconds, loopForever: loopForever
             )
         } catch {
             sink.isCancelled = true
