@@ -18,6 +18,9 @@ public enum ClipAnalyzer {
         /// transform so one bad frame does not sink the clip; the count is reported so it is
         /// not silent. (Failure detection proper is #20.)
         public let estimationFailures: Int
+        /// One line per rejected frame saying which one and why ("frame 12: ... scale 1.31 outside ..."), in the
+        /// order they happened, so a clip with many rejections can be understood and not just counted (#92).
+        public var failureReasons: [String] = []
         /// Frames whose subject mask was applied (masking on, and something was found).
         public let maskedFrames: Int
         /// Frames whose mask covered too much of the picture and was discarded (PRD R-6).
@@ -82,6 +85,7 @@ public enum ClipAnalyzer {
 
         var motion: [Int: FrameMotion] = [:]
         var failures = 0
+        var failureLog: [String] = []
         var count = 0
         var maskedFrames = 0
         var maskSkippedFrames = 0
@@ -134,6 +138,7 @@ public enum ClipAnalyzer {
                     motion[index] = FrameMotion(index: index, transform: previous, correspondences: estimated.correspondences, inlierRatio: estimated.inlierRatio)
                 } catch {
                     failures += 1
+                    failureLog.append("frame \(index): \(error)")
                     motion[index] = FrameMotion(index: index, transform: previous)
                 }
             }
@@ -153,7 +158,7 @@ public enum ClipAnalyzer {
             ]
 
             /// One step: where `frame` is, relative to `neighbour`. Identity when it cannot tell.
-            func step(frame: CVPixelBuffer, frameMask: SubjectMask, neighbour: CVPixelBuffer, neighbourMask: SubjectMask) async -> simd_float3x3 {
+            func step(frameIndex: Int, frame: CVPixelBuffer, frameMask: SubjectMask, neighbour: CVPixelBuffer, neighbourMask: SubjectMask) async -> simd_float3x3 {
                 do {
                     let estimated = try await masked(frame: frame, frameMask: frameMask, reference: neighbour, referenceMask: neighbourMask)
                     try VisionRegistrationEstimator.checkPlausibility(
@@ -163,6 +168,7 @@ public enum ClipAnalyzer {
                     return estimated.transform
                 } catch {
                     failures += 1
+                    failureLog.append("frame \(frameIndex): \(error)")
                     return matrix_identity_float3x3
                 }
             }
@@ -184,7 +190,7 @@ public enum ClipAnalyzer {
                 let current = try scaledCopy(frame, into: scratch[index % 2])
                 guard let neighbour = previousBuffer else { continue }
                 let currentMask = await maskOf(current)
-                chain = await step(frame: current, frameMask: currentMask, neighbour: neighbour, neighbourMask: previousMask) * chain
+                chain = await step(frameIndex: index, frame: current, frameMask: currentMask, neighbour: neighbour, neighbourMask: previousMask) * chain
                 motion[index] = FrameMotion(index: index, transform: toEstimation.inverse * chain * toEstimation)
                 // The next step needs this frame as its neighbour, and the scratch buffers alternate.
                 previousBuffer = current
@@ -197,7 +203,7 @@ public enum ClipAnalyzer {
             chain = matrix_identity_float3x3
             var i = referenceIndex - 1
             while i >= 0 {
-                chain = await step(frame: head[i], frameMask: headMasks[i], neighbour: head[i + 1], neighbourMask: headMasks[i + 1]) * chain
+                chain = await step(frameIndex: i, frame: head[i], frameMask: headMasks[i], neighbour: head[i + 1], neighbourMask: headMasks[i + 1]) * chain
                 motion[i] = FrameMotion(index: i, transform: toEstimation.inverse * chain * toEstimation)
                 i -= 1
             }
@@ -205,7 +211,7 @@ public enum ClipAnalyzer {
 
         let ordered = (0..<count).map { motion[$0] ?? FrameMotion(index: $0, transform: matrix_identity_float3x3) }
         let frameTimes = try FrameSequence.presentationTimes(asset: asset, track: track)
-        return MotionResult(motion: ordered, size: size, frameRate: frameRate, frameTimes: frameTimes, estimationFailures: failures, maskedFrames: maskedFrames, maskSkippedFrames: maskSkippedFrames)
+        return MotionResult(motion: ordered, size: size, frameRate: frameRate, frameTimes: frameTimes, estimationFailures: failures, failureReasons: failureLog, maskedFrames: maskedFrames, maskSkippedFrames: maskSkippedFrames)
     }
 
     /// One signature per source frame of the STABILIZED, cropped picture, for loop selection.
