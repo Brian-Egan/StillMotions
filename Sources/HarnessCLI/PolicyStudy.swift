@@ -40,6 +40,7 @@ enum PolicyStudy {
         var fixtures: URL?, out: URL?
         var limit: Int?, every = 1
         var withMasking = true
+        var oldDarkening = false
         var i = 0
         while i < arguments.count {
             switch arguments[i] {
@@ -47,6 +48,7 @@ enum PolicyStudy {
             case "--out": i += 1; out = URL(fileURLWithPath: arguments[i], isDirectory: true)
             case "--limit": i += 1; limit = Int(arguments[i])
             case "--no-masked": withMasking = false
+            case "--old-darkening": oldDarkening = true
             case "--every": i += 1; every = max(1, Int(arguments[i]) ?? 1)
             default: throw SpikeError("unknown argument '\(arguments[i])'\nusage: stillmotions-harness policy-study --fixtures <dir> --out <dir> [--limit N]")
             }
@@ -61,7 +63,7 @@ enum PolicyStudy {
         var rows: [Row] = []
         for (index, clip) in clips.enumerated() {
             do {
-                let row = try await study(clip: clip, withMasking: withMasking)
+                let row = try await study(clip: clip, withMasking: withMasking, oldDarkening: oldDarkening)
                 rows.append(row)
                 print(String(format: "[%d/%d] %@ people %.0f%%  off %.2f | smooth-8 %@ -> %@",
                              index + 1, clips.count, clip.name, row.personCoverage * 100, row.off.jitter ?? -1,
@@ -85,7 +87,7 @@ enum PolicyStudy {
         try encoder.encode(rows).write(to: out.appendingPathComponent("rows.json"))
     }
 
-    static func study(clip: ClipInput, withMasking: Bool = true) async throws -> Row {
+    static func study(clip: ClipInput, withMasking: Bool = true, oldDarkening: Bool = false) async throws -> Row {
         let renderer = StabilizedRenderer()
         let masker = SubjectMasker(configuration: .init(analysisLongEdge: 360, usesForegroundInstances: false))
         let referenceIndex = try await clip.referenceIndex()
@@ -102,7 +104,8 @@ enum PolicyStudy {
         func estimate(masked: Bool) async throws -> (ClipAnalyzer.MotionResult, Double) {
             let start = ContinuousClock.now
             let motion = try await ClipAnalyzer.estimateMotion(
-                movieURL: clip.movieURL, referenceIndex: referenceIndex, estimator: VisionRegistrationEstimator(),
+                movieURL: clip.movieURL, referenceIndex: referenceIndex,
+                estimator: oldDarkening ? DarkenedEstimator(inner: VisionRegistrationEstimator()) : VisionRegistrationEstimator(),
                 strategy: .chained, masker: masked ? masker : nil, renderer: renderer
             )
             let elapsed = ContinuousClock.now - start

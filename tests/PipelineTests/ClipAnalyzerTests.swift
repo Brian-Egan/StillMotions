@@ -108,6 +108,21 @@ final class ClipAnalyzerTests: XCTestCase {
         XCTAssertEqual(result.motion[5].transform[2][0], clean.motion[5].transform[2][0], accuracy: 0.01, "frames before the failure are untouched")
     }
 
+    func testEveryRejectedFrameIsNamedWithItsReason() async throws {
+        // A count says a clip is in trouble; the reasons say what kind (#92). Chained from frame 0, the
+        // estimator's 10th and 11th calls are for frames 10 and 11.
+        let result = try await ClipAnalyzer.estimateMotion(
+            movieURL: movie("translate-linear"), referenceIndex: 0, estimator: FlakyEstimator(failOn: [10, 11]), strategy: .chained
+        )
+        XCTAssertEqual(result.failureReasons.count, result.estimationFailures)
+        XCTAssertEqual(result.failureReasons.map { $0.prefix(while: { $0 != ":" }) }, ["frame 10", "frame 11"])
+        XCTAssertTrue(result.failureReasons.allSatisfy { $0.contains("injected") }, "the estimator's own explanation is kept: \(result.failureReasons)")
+        let clean = try await ClipAnalyzer.estimateMotion(
+            movieURL: movie("translate-linear"), referenceIndex: 0, estimator: VisionRegistrationEstimator(), strategy: .chained
+        )
+        XCTAssertEqual(clean.failureReasons, [], "a clean clip has nothing to explain")
+    }
+
     func testStepPlausibilityRejectsWhatNeighbouringFramesCannotDo() throws {
         let bounds = ClipAnalyzer.stepPlausibility
         func check(_ m: simd_float3x3) throws {

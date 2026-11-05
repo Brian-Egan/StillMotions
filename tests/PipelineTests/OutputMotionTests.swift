@@ -65,4 +65,16 @@ final class OutputMotionTests: XCTestCase {
         let slow = OutputMotion.summarize(slowPath, times: slowTimes).jitter
         XCTAssertEqual(slow, fast, accuracy: fast * 0.15, "30 fps gave \(fast), 15 fps gave \(slow)")
     }
+
+    func testRejectedFramesAreGroupedByTheRuleThatRejectedThem() {
+        let reasons = [
+            "frame 3: estimated transform rejected as implausible: scale 1.31 outside 0.8...1.25",
+            "frame 4: estimated transform rejected as implausible: scale 0.62 outside 0.8...1.25",
+            "frame 9: estimated transform rejected as implausible: rotation 0.2 rad exceeds ±0.14",
+            "frame 12: estimated transform rejected as implausible: translation 400px exceeds 0.25 of frame diagonal",
+            "frame 15: registration request returned nothing",
+        ]
+        XCTAssertEqual(EstimationFailures.classify(reasons), ["scale": 2, "rotation": 1, "translation": 1, "estimator found nothing": 1])
+        XCTAssertEqual(EstimationFailures.classify([]), [:])
+    }
 }
