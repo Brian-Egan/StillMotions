@@ -11,6 +11,7 @@
 @_exported import LoopSelection
 @_exported import Rendering
 @_exported import Encoding
+@_exported import DropBox
 
 // Otherwise EMPTY BY DESIGN. The planning session writes no feature code.
 //

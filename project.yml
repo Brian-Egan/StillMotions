@@ -104,6 +104,10 @@ targets:
             NSExtensionActivationRule:
               NSExtensionActivationSupportsImageWithMaxCount: 1
               NSExtensionActivationSupportsMovieWithMaxCount: 1
+    # The extension links the drop box and nothing else of ours: not the pipeline (decision 0003).
+    dependencies:
+      - package: StillMotionsPipeline
+        product: DropBox
     entitlements:
       path: App/StillMotionsShare/StillMotionsShare.entitlements
       properties:
